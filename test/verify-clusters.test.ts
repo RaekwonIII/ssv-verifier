@@ -22,12 +22,19 @@ describe("verifyAllClusters", () => {
         network: "hoodi",
         clusterId,
         subgraphSource: "primary",
+        freshness: {
+          indexedBlockNumber: 20,
+          chainHeadBlockNumber: 20,
+          lagBlocks: 0,
+          status: "fresh",
+        },
         status: clusterId === "cluster-a" ? "pass" : "fail",
         checks: clusterId === "cluster-a"
           ? [
               {
                 name: "owner",
                 status: "pass",
+                classification: "verified",
                 detail: "matched",
                 subgraphValue: "0x1",
                 viewsValue: "0x1",
@@ -37,6 +44,7 @@ describe("verifyAllClusters", () => {
               {
                 name: "owner",
                 status: "pass",
+                classification: "verified",
                 detail: "matched",
                 subgraphValue: "0x2",
                 viewsValue: "0x2",
@@ -44,6 +52,7 @@ describe("verifyAllClusters", () => {
               {
                 name: "currentBalance",
                 status: "fail",
+                classification: "mismatch",
                 detail: "mismatch",
                 subgraphValue: "30",
                 viewsValue: "29",
@@ -59,6 +68,7 @@ describe("verifyAllClusters", () => {
       totalClusters: 2,
       totalChecks: 3,
       passedChecks: 2,
+      warnedChecks: 0,
       failedChecks: 1,
     });
   });
@@ -74,13 +84,20 @@ describe("verifyAllClusters", () => {
         network: runtimeConfig.activeNetworks[0]!,
         clusterId,
         subgraphSource: "primary",
-        status: clusterId === "hoodi-cluster" ? "pass" : "fail",
+        freshness: {
+          indexedBlockNumber: clusterId === "hoodi-cluster" ? 18 : 20,
+          chainHeadBlockNumber: 20,
+          lagBlocks: clusterId === "hoodi-cluster" ? 2 : 0,
+          status: clusterId === "hoodi-cluster" ? "lagging" : "fresh",
+        },
+        status: clusterId === "hoodi-cluster" ? "warn" : "fail",
         checks: clusterId === "hoodi-cluster"
           ? [
               {
                 name: "owner",
-                status: "pass",
-                detail: "matched",
+                status: "warn",
+                classification: "lag-affected",
+                detail: "lagged",
                 subgraphValue: "0x1",
                 viewsValue: "0x1",
               },
@@ -89,6 +106,7 @@ describe("verifyAllClusters", () => {
               {
                 name: "owner",
                 status: "fail",
+                classification: "mismatch",
                 detail: "mismatch",
                 subgraphValue: "0x2",
                 viewsValue: "0x3",
@@ -102,12 +120,14 @@ describe("verifyAllClusters", () => {
       status: "fail",
       totalClusters: 2,
       totalChecks: 2,
-      passedChecks: 1,
+      passedChecks: 0,
+      warnedChecks: 1,
       failedChecks: 1,
     });
     expect(renderVerifyClustersSummary(result)).toContain("network selection: both");
-    expect(renderVerifyClustersSummary(result)).toContain("- hoodi: 1 passed / 0 failed / 1 total");
-    expect(renderVerifyClustersSummary(result)).toContain("- mainnet: 0 passed / 1 failed / 1 total");
-    expect(renderVerifyClustersSummary(result)).toContain("mainnet/mainnet-cluster: failed checks=owner");
+    expect(renderVerifyClustersSummary(result)).toContain("- hoodi: 0 passed / 1 warned / 0 failed / 1 total");
+    expect(renderVerifyClustersSummary(result)).toContain("- mainnet: 0 passed / 0 warned / 1 failed / 1 total");
+    expect(renderVerifyClustersSummary(result)).toContain("hoodi/hoodi-cluster: non-passing checks=owner:warn");
+    expect(renderVerifyClustersSummary(result)).toContain("mainnet/mainnet-cluster: non-passing checks=owner:fail");
   });
 });

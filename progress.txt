@@ -41,3 +41,20 @@
 - Extended `verify-clusters` so `--network both` runs the existing per-network batch verifier for `hoodi` and `mainnet`, then reports per-network and combined totals.
 - Added automated coverage for the combined multi-network summary path.
 - Verified the slice with `npm test` and `npm run build`.
+- Created branch `ralph/issue-9-lag-aware-classification`.
+- Selected issue #9: Add Lag-Aware Result Classification as the next unblocked feature.
+- Extended `verify-cluster` to capture subgraph `_meta` freshness, compare it against the current chain head, and downgrade lag-affected mismatches from hard failures to warnings in both text and JSON output.
+- Updated batch aggregation to track warned checks separately from true failures.
+- Added automated coverage for a lag-affected warning path and a fresh non-lag mismatch path.
+- Verified the slice with `npm test` and `npm run build`.
+- Selected issue #10: Verify Operator State End To End as the next unblocked feature.
+- Added a `verify-operator` command that compares subgraph operator fee, validator count, and active status against `Views.getOperatorFee(...)` and `Views.getOperatorById(...)`.
+- Added automated coverage for successful and failing operator verification flows.
+- Verified the slice with `npm test` and `npm run build`.
+- Selected issue #11: Verify DAO And Network Config End To End as the next unblocked feature.
+- Added a `verify-config` command that compares subgraph DAO values against `Views` network fee and liquidation parameter getters.
+- Added automated coverage for successful and failing DAO/network config verification flows.
+- Verified the slice with `npm test` and `npm run build`.
+- Selected issue #12: Add Fixture-Backed Regression Tests For Verification Flows as the final open feature.
+- Added fixture-backed regression coverage for the single-cluster verification path using stable pass and fail snapshots under `test/fixtures/verify-cluster/`.
+- Verified the fixture regressions run under the main `npm test` command alongside `npm run build`.
