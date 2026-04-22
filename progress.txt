@@ -8,3 +8,8 @@
 - Started issue #2: added a `verify-network` health check command for RPC reachability, subgraph `_meta`, and deployed bytecode at the configured `Views` address.
 - Expanded automated coverage to include successful and failing `verify-network` runs.
 - Verified the slice with `npm test` and `npm run build`.
+- Created branch `ralph/issue-3-verify-cluster-identity` for iteration 2.
+- Selected issue #3: Verify Cluster Identity For One Cluster as the next unblocked feature.
+- Added a `verify-cluster` command, single-cluster subgraph fetch support, and a `Views` client that uses on-chain hashed-state validation to verify owner, operator IDs, validator count, and active status.
+- Added automated coverage for successful and failing `verify-cluster` flows.
+- Verified the slice with `npm test` and `npm run build`.
