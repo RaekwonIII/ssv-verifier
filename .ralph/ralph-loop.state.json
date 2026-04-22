@@ -1,0 +1,13 @@
+{
+  "active": true,
+  "iteration": 1,
+  "minIterations": 1,
+  "maxIterations": 20,
+  "completionPromise": "COMPLETE",
+  "tasksMode": false,
+  "taskPromise": "READY_FOR_NEXT_TASK",
+  "prompt": "Initialize new branch for this session, choose an adapt name for it. List all available GitHub issues, inspect them and then: 1. Decide which task to work on next. 2. Check any feedback loops, such as types and tests.3. Append your progress to the progress.txt file. 4. Make a git commit of that feature, push it to the branch and mark that issue as complete ONLY WORK ON A SINGLE FEATURE AT A TIME. Once done, move on to the next, until all GH issues are marked complete",
+  "startedAt": "2026-04-22T11:11:56.950Z",
+  "model": "openai/gpt-5.4",
+  "agent": "opencode"
+}
