@@ -5,6 +5,7 @@ import {
   deriveCurrentClusterBalance,
   deriveLiquidatableStatus,
   deriveLiquidationCollateral,
+  renderVerifyClusterJson,
   renderVerifyClusterSummary,
   verifyClusterIdentity,
 } from "../src/commands/verify-cluster.js";
@@ -26,6 +27,16 @@ describe("parseCliArgs verify-cluster", () => {
       command: "verify-cluster",
       network: "hoodi",
       clusterId,
+      output: "text",
+    });
+  });
+
+  it("parses json output mode for verify-cluster", () => {
+    expect(parseCliArgs(["verify-cluster", "--network", "hoodi", "--cluster", clusterId, "--output", "json"])).toEqual({
+      command: "verify-cluster",
+      network: "hoodi",
+      clusterId,
+      output: "json",
     });
   });
 });
@@ -174,6 +185,11 @@ describe("verifyClusterIdentity", () => {
       status: "pass",
     });
     expect(renderVerifyClusterSummary(result)).toContain("verify-cluster PASS");
+    expect(JSON.parse(renderVerifyClusterJson(result))).toMatchObject({
+      network: "hoodi",
+      clusterId,
+      status: "pass",
+    });
   });
 
   it("reports a current balance mismatch", async () => {
@@ -267,6 +283,19 @@ describe("verifyClusterIdentity", () => {
       status: "fail",
     });
     expect(renderVerifyClusterSummary(result)).toContain("currentBalance: FAIL");
+    expect(JSON.parse(renderVerifyClusterJson(result))).toMatchObject({
+      network: "hoodi",
+      clusterId,
+      status: "fail",
+      checks: expect.arrayContaining([
+        expect.objectContaining({
+          name: "currentBalance",
+          status: "fail",
+          subgraphValue: "30",
+          viewsValue: "29",
+        }),
+      ]),
+    });
   });
 
   it("reports a liquidatable mismatch", async () => {

@@ -1,7 +1,7 @@
 import { ZodError } from "zod";
 
 import { loadRuntimeConfig } from "./config/env.js";
-import { renderVerifyClusterSummary, verifyClusterIdentity } from "./commands/verify-cluster.js";
+import { renderVerifyClusterJson, renderVerifyClusterSummary, verifyClusterIdentity } from "./commands/verify-cluster.js";
 import { renderVerifyNetworkSummary, verifyNetworkHealth } from "./commands/verify-network.js";
 import { isNetworkTarget, supportedNetworks, type NetworkTarget } from "./config/networks.js";
 
@@ -9,12 +9,14 @@ interface CliArgs {
   command: "bootstrap" | "verify-network" | "verify-cluster";
   network: NetworkTarget;
   clusterId?: string;
+  output: "text" | "json";
 }
 
 export function parseCliArgs(argv: string[]): CliArgs {
   let command: CliArgs["command"] = "bootstrap";
   let network: NetworkTarget | undefined;
   let clusterId: string | undefined;
+  let output: CliArgs["output"] = "text";
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -56,6 +58,18 @@ export function parseCliArgs(argv: string[]): CliArgs {
       continue;
     }
 
+    if (arg === "--output" || arg === "-o") {
+      const value = argv[index + 1];
+
+      if (value !== "text" && value !== "json") {
+        throw new Error("Invalid --output value. Expected one of: text, json.");
+      }
+
+      output = value;
+      index += 1;
+      continue;
+    }
+
     throw new Error(`Unknown argument: ${arg}`);
   }
 
@@ -70,6 +84,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
   return {
     command,
     network,
+    output,
     ...(clusterId ? { clusterId } : {}),
   };
 }
@@ -92,7 +107,7 @@ export function renderBootstrapSummary(args: CliArgs): string {
 
 export function printHelp(): void {
   const usage = [
-    "Usage: ssv-verifier [verify-network|verify-cluster] --network <hoodi|mainnet|both> [--cluster <id>]",
+    "Usage: ssv-verifier [verify-network|verify-cluster] --network <hoodi|mainnet|both> [--cluster <id>] [--output <text|json>]",
     "",
     "Commands:",
     "  verify-network  Run RPC, subgraph, and Views health checks",
@@ -101,6 +116,7 @@ export function printHelp(): void {
     "Options:",
     "  -n, --network   Select which network scope to run",
     "  -c, --cluster   Cluster identifier for verify-cluster",
+    "  -o, --output    Output format for verify-cluster (text or json)",
     "  -h, --help      Show this help text",
   ].join("\n");
 
@@ -119,7 +135,7 @@ async function main(): Promise<void> {
 
     if (args.command === "verify-cluster") {
       const result = await verifyClusterIdentity(loadRuntimeConfig(args.network), args.clusterId ?? "");
-      console.log(renderVerifyClusterSummary(result));
+      console.log(args.output === "json" ? renderVerifyClusterJson(result) : renderVerifyClusterSummary(result));
       process.exitCode = result.status === "pass" ? 0 : 1;
       return;
     }

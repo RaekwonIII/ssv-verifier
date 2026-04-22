@@ -36,9 +36,11 @@ Run the single-cluster verifier:
 
 ```bash
 npm run dev -- verify-cluster --network hoodi --cluster 0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-7-523
+npm run dev -- verify-cluster --network hoodi --cluster 0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-7-523 --output json
 ```
 
 The `verify-cluster` command now checks cluster identity fields, derives the current cluster balance from subgraph accounting inputs, compares that value to `Views.getBalance(...)`, and verifies burn rate plus liquidation status against `Views`.
+Use `--output json` to emit the same result set as structured JSON for automation.
 
 Build the CLI:
 
@@ -47,6 +49,7 @@ npm run build
 node dist/index.js --network hoodi
 node dist/index.js verify-network --network hoodi
 node dist/index.js verify-cluster --network hoodi --cluster 0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-7-523
+node dist/index.js verify-cluster --network hoodi --cluster 0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-7-523 --output json
 ```
 
 Run tests:

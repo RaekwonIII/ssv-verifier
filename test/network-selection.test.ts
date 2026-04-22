@@ -13,7 +13,7 @@ const baseEnv = {
 
 describe("parseCliArgs", () => {
   it("accepts both as a valid network target", () => {
-    expect(parseCliArgs(["--network", "both"])).toEqual({ command: "bootstrap", network: "both" });
+    expect(parseCliArgs(["--network", "both"])).toEqual({ command: "bootstrap", network: "both", output: "text" });
   });
 
   it("rejects unsupported network values", () => {
@@ -24,6 +24,7 @@ describe("parseCliArgs", () => {
     expect(parseCliArgs(["verify-network", "--network", "hoodi"])).toEqual({
       command: "verify-network",
       network: "hoodi",
+      output: "text",
     });
   });
 });
