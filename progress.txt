@@ -13,3 +13,9 @@
 - Added a `verify-cluster` command, single-cluster subgraph fetch support, and a `Views` client that uses on-chain hashed-state validation to verify owner, operator IDs, validator count, and active status.
 - Added automated coverage for successful and failing `verify-cluster` flows.
 - Verified the slice with `npm test` and `npm run build`.
+2026-04-22 Iteration 3
+- Created branch `ralph/issue-4-derive-cluster-balance`.
+- Selected issue #4: Verify Derived Current Cluster Balance as the next unblocked feature.
+- Extended `verify-cluster` to fetch operator and DAO accounting inputs, derive the current cluster balance at the latest RPC block, and compare that value against `Views.getBalance(...)`.
+- Added regression coverage for the balance derivation formula plus successful and failing end-to-end balance comparisons.
+- Verified the slice with `npm test` and `npm run build`.

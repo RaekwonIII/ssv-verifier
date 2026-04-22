@@ -32,11 +32,13 @@ npm run dev -- verify-network --network hoodi
 npm run dev -- verify-network --network mainnet
 ```
 
-Run the single-cluster identity verifier:
+Run the single-cluster verifier:
 
 ```bash
 npm run dev -- verify-cluster --network hoodi --cluster 0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-7-523
 ```
+
+The `verify-cluster` command now checks cluster identity fields and also derives the current cluster balance from subgraph accounting inputs before comparing that value to `Views.getBalance(...)`.
 
 Build the CLI:
 
