@@ -4,8 +4,15 @@
 This file applies to the repository root.
 
 ## Current Repository State
-The repository currently contains documentation only.
-There are no source files, package manifests, test suites, lint configs, formatter configs, or CI files to inspect.
+The repository now contains an initialized TypeScript CLI skeleton in addition to the original protocol documents.
+
+Observed project files now include:
+
+1. `package.json`
+2. `tsconfig.json`
+3. `vitest.config.ts`
+4. `src/`
+5. `test/`
 There was no existing `AGENTS.md` in this repository before this file was added.
 There are no Cursor rules in `.cursor/rules/` or `.cursorrules`.
 There are no Copilot instructions in `.github/copilot-instructions.md`.
@@ -22,61 +29,23 @@ It records only what was actually observed and avoids inventing project-specific
 ## Command Reference
 
 ### Build
-No build command is currently defined in this repository.
+Verified from `package.json`:
 
-Agents should not guess a build command.
-Before claiming a build command exists, verify it from one of these sources:
-
-1. `package.json` scripts
-2. `Makefile`
-3. `justfile`
-4. `pyproject.toml`
-5. `Cargo.toml`
-6. `go.mod`
-7. CI workflows or project documentation
-
-If none of those files exist, state clearly that no build command is available yet.
+1. `npm run build`
 
 ### Lint
 No lint command is currently defined in this repository.
 
-When tooling appears, prefer the canonical project command, such as:
-
-1. `npm run lint`
-2. `pnpm lint`
-3. `yarn lint`
-4. `ruff check .`
-5. `cargo clippy --all-targets --all-features`
-
-Do not recommend a lint command unless it is backed by checked-in config or scripts.
-
 ### Test
-No test command is currently defined in this repository.
+Verified from `package.json`:
 
-Agents should discover the real test command from project config before using one.
-Likely future sources include:
-
-1. `package.json` scripts
-2. `pytest.ini`, `pyproject.toml`, or `tox.ini`
-3. `Cargo.toml`
-4. CI workflow commands
-
-If the repo remains empty, report that there are no tests to run.
+1. `npm test`
 
 ### Single-Test Execution
-There is no single-test command defined yet because there is no test framework configured.
+Vitest is configured. Use one of these verified forms:
 
-Once a framework exists, document the exact command form here.
-Examples of acceptable future entries are:
-
-1. Vitest: `pnpm vitest run path/to/file.test.ts`
-2. Vitest single test: `pnpm vitest run path/to/file.test.ts -t "test name"`
-3. Jest: `npm test -- path/to/file.test.ts`
-4. Jest single test: `npm test -- path/to/file.test.ts -t "test name"`
-5. Pytest: `pytest tests/path/test_file.py::test_case`
-6. Cargo: `cargo test test_name`
-
-Do not present these examples as active project commands unless the matching toolchain is actually added.
+1. `npx vitest run test/network-selection.test.ts`
+2. `npx vitest run test/network-selection.test.ts -t "test name"`
 
 ## How Agents Should Work Here
 Start by inspecting the repository contents instead of assuming a stack.
@@ -86,7 +55,7 @@ Treat `ssv-protocol.md` and `subgraph.md` as the current source of truth for the
 Treat `ssv-contracts.md` as the contract-level companion reference for how the legacy SSV-token network is implemented on-chain.
 If code is added later, align names, calculations, and data handling with those documents unless the user asks for a deliberate change.
 
-When adding code to a newly initialized repository:
+When adding code to this repository:
 
 1. Add the minimum files needed for the requested task.
 2. Keep setup consistent with the chosen language ecosystem.
@@ -94,26 +63,21 @@ When adding code to a newly initialized repository:
 4. Update this file once concrete conventions exist.
 
 ## Style Guidance
-There is no established project style to infer from source code yet.
-Until the codebase defines one, use the following defaults.
+The current codebase is small, but the initial TypeScript CLI establishes a few concrete conventions.
 
 ### Imports
 Keep imports explicit and minimal.
-Remove unused imports.
-Prefer standard-library or built-in imports first, then third-party packages, then local modules if the language distinguishes them.
-Avoid wildcard imports unless the language community strongly treats them as idiomatic.
+Use ESM-style imports with `.js` extensions in local TypeScript source files so the emitted NodeNext output resolves correctly.
+Prefer built-in modules first, then third-party packages, then local modules.
 
 ### Formatting
-Follow the formatter used by the project once one exists.
-If no formatter exists, write code in the default idiomatic style for the language.
-Do not introduce a formatter config unless the user asks or the task clearly requires it.
-Keep line length reasonable and prioritize readability over dense code.
+No formatter config is checked in yet.
+Write idiomatic TypeScript with readable line lengths and straightforward control flow.
 
 ### Types
-Prefer explicit, readable types at public boundaries.
-Use inference when it improves readability and the type is obvious.
-Avoid unnecessary type indirection.
-Do not weaken types without a concrete reason.
+TypeScript is configured in strict mode.
+Prefer explicit types at module boundaries and for exported APIs.
+Use `zod` for runtime validation at environment and input boundaries.
 
 ### Naming
 Use descriptive names.
@@ -138,9 +102,9 @@ Prefer straightforward control flow over clever abstractions.
 Extract helpers only when they improve reuse, readability, or testability.
 
 ### Testing Expectations
-When tests exist, add or update the smallest test set that covers the behavior changed.
-Prefer targeted tests over broad snapshots.
-If no test framework exists, do not invent test results.
+Use Vitest for automated tests.
+Add or update the smallest targeted test set that covers the changed behavior.
+Prefer direct assertions over broad snapshots.
 
 ### Dependency Changes
 Do not add dependencies casually.
