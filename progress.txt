@@ -1,0 +1,6 @@
+2026-04-22 Iteration 1
+- Reviewed the repo state, issue list, and dependency order.
+- Selected issue #1: Bootstrap CLI With Network Selection because it is the first unblocked task.
+- Created branch `ralph/issue-1-bootstrap-cli-network-selection`.
+- Bootstrapped a TypeScript CLI with validated env loading, `hoodi|mainnet|both` selection, docs, and a basic automated test.
+- Verified the slice with `npm test` and `npm run build`.
