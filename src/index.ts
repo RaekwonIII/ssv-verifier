@@ -1,17 +1,25 @@
 import { ZodError } from "zod";
 
 import { loadRuntimeConfig } from "./config/env.js";
+import { renderVerifyNetworkSummary, verifyNetworkHealth } from "./commands/verify-network.js";
 import { isNetworkTarget, supportedNetworks, type NetworkTarget } from "./config/networks.js";
 
 interface CliArgs {
+  command: "bootstrap" | "verify-network";
   network: NetworkTarget;
 }
 
 export function parseCliArgs(argv: string[]): CliArgs {
+  let command: CliArgs["command"] = "bootstrap";
   let network: NetworkTarget | undefined;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+
+    if (index === 0 && arg === "verify-network") {
+      command = "verify-network";
+      continue;
+    }
 
     if (arg === "--help" || arg === "-h") {
       printHelp();
@@ -37,7 +45,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
     throw new Error("Missing required --network option.");
   }
 
-  return { network };
+  return { command, network };
 }
 
 export function renderBootstrapSummary(args: CliArgs): string {
@@ -58,7 +66,10 @@ export function renderBootstrapSummary(args: CliArgs): string {
 
 export function printHelp(): void {
   const usage = [
-    "Usage: ssv-verifier --network <hoodi|mainnet|both>",
+    "Usage: ssv-verifier [verify-network] --network <hoodi|mainnet|both>",
+    "",
+    "Commands:",
+    "  verify-network  Run RPC, subgraph, and Views health checks",
     "",
     "Options:",
     "  -n, --network   Select which network scope to run",
@@ -71,6 +82,13 @@ export function printHelp(): void {
 async function main(): Promise<void> {
   try {
     const args = parseCliArgs(process.argv.slice(2));
+    if (args.command === "verify-network") {
+      const results = await verifyNetworkHealth(loadRuntimeConfig(args.network));
+      console.log(renderVerifyNetworkSummary(results));
+      process.exitCode = results.every((result) => result.status === "pass") ? 0 : 1;
+      return;
+    }
+
     console.log(renderBootstrapSummary(args));
   } catch (error) {
     if (error instanceof ZodError) {

@@ -1,7 +1,7 @@
 import { config as loadDotenv } from "dotenv";
 import { z } from "zod";
 
-import { resolveNetworks, type NetworkTarget } from "./networks.js";
+import { getFallbackSubgraphUrl, getPrimarySubgraphUrl, resolveNetworks, type NetworkTarget } from "./networks.js";
 
 loadDotenv();
 
@@ -18,6 +18,8 @@ const rawEnvSchema = z.object({
 export interface NetworkRuntimeConfig {
   rpcUrl: string;
   viewsAddress: string;
+  subgraphPrimaryUrl: string;
+  subgraphFallbackUrl?: string;
 }
 
 export interface RuntimeConfig {
@@ -30,6 +32,8 @@ export interface RuntimeConfig {
 export function loadRuntimeConfig(selectedNetwork: NetworkTarget, env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
   const parsedEnv = rawEnvSchema.parse(env);
   const theGraphApiKey = parsedEnv.THEGRAPH_API_KEY || undefined;
+  const hoodiFallbackUrl = getFallbackSubgraphUrl("hoodi", theGraphApiKey);
+  const mainnetFallbackUrl = getFallbackSubgraphUrl("mainnet", theGraphApiKey);
 
   return {
     selectedNetwork,
@@ -37,10 +41,14 @@ export function loadRuntimeConfig(selectedNetwork: NetworkTarget, env: NodeJS.Pr
       hoodi: {
         rpcUrl: parsedEnv.HOODI_RPC_URL,
         viewsAddress: parsedEnv.HOODI_VIEWS_ADDRESS.toLowerCase(),
+        subgraphPrimaryUrl: getPrimarySubgraphUrl("hoodi"),
+        ...(hoodiFallbackUrl ? { subgraphFallbackUrl: hoodiFallbackUrl } : {}),
       },
       mainnet: {
         rpcUrl: parsedEnv.MAINNET_RPC_URL,
         viewsAddress: parsedEnv.MAINNET_VIEWS_ADDRESS.toLowerCase(),
+        subgraphPrimaryUrl: getPrimarySubgraphUrl("mainnet"),
+        ...(mainnetFallbackUrl ? { subgraphFallbackUrl: mainnetFallbackUrl } : {}),
       },
     },
     activeNetworks: resolveNetworks(selectedNetwork),
