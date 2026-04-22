@@ -47,6 +47,7 @@ Run the batch verifier for every cluster on one network:
 ```bash
 npm run dev -- verify-clusters --network hoodi
 npm run dev -- verify-clusters --network mainnet
+npm run dev -- verify-clusters --network both
 ```
 
 Build the CLI:
@@ -58,6 +59,7 @@ node dist/index.js verify-network --network hoodi
 node dist/index.js verify-cluster --network hoodi --cluster 0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-7-523
 node dist/index.js verify-cluster --network hoodi --cluster 0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-7-523 --output json
 node dist/index.js verify-clusters --network hoodi
+node dist/index.js verify-clusters --network both
 ```
 
 Run tests:
