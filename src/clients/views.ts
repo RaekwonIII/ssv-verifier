@@ -3,7 +3,9 @@ import { Interface } from "ethers";
 import { jsonRpcRequest } from "./json-rpc.js";
 
 const viewsInterface = new Interface([
+  "function isLiquidatable(address clusterOwner, uint64[] operatorIds, (uint32 validatorCount, uint64 networkFeeIndex, uint64 index, bool active, uint256 balance) cluster) view returns (bool)",
   "function isLiquidated(address clusterOwner, uint64[] operatorIds, (uint32 validatorCount, uint64 networkFeeIndex, uint64 index, bool active, uint256 balance) cluster) view returns (bool)",
+  "function getBurnRate(address clusterOwner, uint64[] operatorIds, (uint32 validatorCount, uint64 networkFeeIndex, uint64 index, bool active, uint256 balance) cluster) view returns (uint256)",
   "function getBalance(address clusterOwner, uint64[] operatorIds, (uint32 validatorCount, uint64 networkFeeIndex, uint64 index, bool active, uint256 balance) cluster) view returns (uint256)",
 ]);
 
@@ -84,4 +86,56 @@ export async function getClusterBalanceFromViews(
   const [balance] = viewsInterface.decodeFunctionResult("getBalance", response);
 
   return balance;
+}
+
+export async function getClusterBurnRateFromViews(
+  rpcUrl: string,
+  viewsAddress: string,
+  owner: string,
+  operatorIds: bigint[],
+  cluster: ViewsClusterState,
+  fetchFn: typeof fetch = fetch,
+): Promise<bigint> {
+  const data = viewsInterface.encodeFunctionData("getBurnRate", [owner, operatorIds, cluster]);
+  const response = await jsonRpcRequest<string>(
+    rpcUrl,
+    "eth_call",
+    [
+      {
+        to: viewsAddress,
+        data,
+      },
+      "latest",
+    ],
+    fetchFn,
+  );
+  const [burnRate] = viewsInterface.decodeFunctionResult("getBurnRate", response);
+
+  return burnRate;
+}
+
+export async function getClusterLiquidatableFromViews(
+  rpcUrl: string,
+  viewsAddress: string,
+  owner: string,
+  operatorIds: bigint[],
+  cluster: ViewsClusterState,
+  fetchFn: typeof fetch = fetch,
+): Promise<boolean> {
+  const data = viewsInterface.encodeFunctionData("isLiquidatable", [owner, operatorIds, cluster]);
+  const response = await jsonRpcRequest<string>(
+    rpcUrl,
+    "eth_call",
+    [
+      {
+        to: viewsAddress,
+        data,
+      },
+      "latest",
+    ],
+    fetchFn,
+  );
+  const [isLiquidatable] = viewsInterface.decodeFunctionResult("isLiquidatable", response);
+
+  return isLiquidatable;
 }
