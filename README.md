@@ -38,7 +38,7 @@ Run the single-cluster verifier:
 npm run dev -- verify-cluster --network hoodi --cluster 0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-7-523
 ```
 
-The `verify-cluster` command now checks cluster identity fields and also derives the current cluster balance from subgraph accounting inputs before comparing that value to `Views.getBalance(...)`.
+The `verify-cluster` command now checks cluster identity fields, derives the current cluster balance from subgraph accounting inputs, compares that value to `Views.getBalance(...)`, and verifies burn rate plus liquidation status against `Views`.
 
 Build the CLI:
 

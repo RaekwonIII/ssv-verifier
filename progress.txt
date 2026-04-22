@@ -19,3 +19,10 @@
 - Extended `verify-cluster` to fetch operator and DAO accounting inputs, derive the current cluster balance at the latest RPC block, and compare that value against `Views.getBalance(...)`.
 - Added regression coverage for the balance derivation formula plus successful and failing end-to-end balance comparisons.
 - Verified the slice with `npm test` and `npm run build`.
+- Created branch `ralph/issue-5-verify-cluster-liquidation`.
+- Selected issue #5: Verify Liquidation State For One Cluster as the next unblocked feature.
+- Extended `verify-cluster` to derive burn rate and liquidation collateral, then compare burn rate and liquidatable status against `Views` using the same block-context as the balance check.
+- Added regression coverage for liquidation formulas plus successful and failing liquidation comparison paths.
+- Verified the slice with `npm test` and `npm run build`.
+- Reviewed open issues #5 through #12 and kept work scoped to the next unblocked feature in dependency order.
+- Re-ran `npm test` and `npm run build` on branch `ralph/issue-5-verify-cluster-liquidation` before closing issue #5.

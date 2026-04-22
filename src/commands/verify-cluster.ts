@@ -2,14 +2,28 @@ import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
 import { jsonRpcRequest } from "../clients/json-rpc.js";
 import { fetchSubgraphClusterAccounting } from "../clients/subgraph.js";
-import { getClusterBalanceFromViews, validateClusterStateWithViews, type ViewsClusterState } from "../clients/views.js";
+import {
+  getClusterBalanceFromViews,
+  getClusterBurnRateFromViews,
+  getClusterLiquidatableFromViews,
+  validateClusterStateWithViews,
+  type ViewsClusterState,
+} from "../clients/views.js";
 
 const LEGACY_SSV_PRECISION = 10_000_000n;
 
 export type CheckStatus = "pass" | "fail";
 
 export interface ClusterIdentityCheckResult {
-  name: "owner" | "operatorIds" | "validatorCount" | "active" | "currentBalance";
+  name:
+    | "owner"
+    | "operatorIds"
+    | "validatorCount"
+    | "active"
+    | "currentBalance"
+    | "burnRate"
+    | "liquidationCollateral"
+    | "liquidatable";
   status: CheckStatus;
   detail: string;
   subgraphValue: string;
@@ -182,6 +196,27 @@ export function deriveCurrentClusterBalance(
   return currentBalance > 0n ? currentBalance : 0n;
 }
 
+export function deriveClusterBurnRate(
+  validatorCount: number,
+  operators: ReadonlyArray<Pick<NormalizedOperator, "fee">>,
+  daoValues: Pick<NormalizedDaoValues, "networkFee">,
+): bigint {
+  const operatorFees = operators.reduce((sum, operator) => sum + operator.fee, 0n);
+  return (operatorFees + daoValues.networkFee) * BigInt(validatorCount);
+}
+
+export function deriveLiquidationCollateral(
+  burnRate: bigint,
+  daoValues: Pick<NormalizedDaoValues, "liquidationThreshold" | "minimumLiquidationCollateral">,
+): bigint {
+  const threshold = burnRate * daoValues.liquidationThreshold;
+  return threshold > daoValues.minimumLiquidationCollateral ? threshold : daoValues.minimumLiquidationCollateral;
+}
+
+export function deriveLiquidatableStatus(active: boolean, currentBalance: bigint, liquidationCollateral: bigint): boolean {
+  return active && currentBalance < liquidationCollateral;
+}
+
 function hexToBigInt(value: string): bigint {
   return BigInt(value);
 }
@@ -250,6 +285,9 @@ export async function verifyClusterIdentity(
         createFailureCheck("validatorCount", String(cluster.validatorCount), baselineFailure),
         createFailureCheck("active", String(cluster.active), baselineFailure),
         createFailureCheck("currentBalance", cluster.balance.toString(), baselineFailure),
+        createFailureCheck("burnRate", "unknown", baselineFailure),
+        createFailureCheck("liquidationCollateral", "unknown", baselineFailure),
+        createFailureCheck("liquidatable", "unknown", baselineFailure),
       ]
     : await (() => {
         const currentBlockPromise = jsonRpcRequest<string>(
@@ -259,6 +297,22 @@ export async function verifyClusterIdentity(
           fetchFn,
         ).then(hexToBigInt);
         const viewsBalancePromise = getClusterBalanceFromViews(
+          networkConfig.rpcUrl,
+          networkConfig.viewsAddress,
+          cluster.owner,
+          cluster.operatorIds,
+          toViewsClusterState(cluster),
+          fetchFn,
+        );
+        const viewsBurnRatePromise = getClusterBurnRateFromViews(
+          networkConfig.rpcUrl,
+          networkConfig.viewsAddress,
+          cluster.owner,
+          cluster.operatorIds,
+          toViewsClusterState(cluster),
+          fetchFn,
+        );
+        const viewsLiquidatablePromise = getClusterLiquidatableFromViews(
           networkConfig.rpcUrl,
           networkConfig.viewsAddress,
           cluster.owner,
@@ -328,6 +382,66 @@ export async function verifyClusterIdentity(
                 : `Derived balance did not match Views at block ${currentBlock.toString()}`,
             } satisfies ClusterIdentityCheckResult;
           }),
+          viewsBurnRatePromise.then((viewsBurnRate) => {
+            const derivedBurnRate = deriveClusterBurnRate(cluster.validatorCount, operators, daoValues);
+            const status: CheckStatus = derivedBurnRate === viewsBurnRate ? "pass" : "fail";
+
+            return {
+              name: "burnRate",
+              status,
+              subgraphValue: derivedBurnRate.toString(),
+              viewsValue: viewsBurnRate.toString(),
+              detail: status === "pass"
+                ? "Derived burn rate matched Views"
+                : "Derived burn rate did not match Views",
+            } satisfies ClusterIdentityCheckResult;
+          }),
+          Promise.all([currentBlockPromise, viewsBalancePromise, viewsLiquidatablePromise]).then(
+            ([currentBlock, viewsBalance, viewsLiquidatable]) => {
+              const derivedBalance = deriveCurrentClusterBalance(cluster, operators, daoValues, currentBlock);
+              const derivedBurnRate = deriveClusterBurnRate(cluster.validatorCount, operators, daoValues);
+              const liquidationCollateral = deriveLiquidationCollateral(derivedBurnRate, daoValues);
+              const expectedLiquidatable = deriveLiquidatableStatus(
+                cluster.active,
+                derivedBalance,
+                liquidationCollateral,
+              );
+              const status: CheckStatus = expectedLiquidatable === viewsLiquidatable ? "pass" : "fail";
+
+              return {
+                name: "liquidationCollateral",
+                status,
+                subgraphValue: liquidationCollateral.toString(),
+                viewsValue: String(viewsLiquidatable),
+                detail: status === "pass"
+                  ? `Derived collateral implied the same liquidatable status as Views at block ${currentBlock.toString()} (balance=${derivedBalance.toString()})`
+                  : `Derived collateral implied a different liquidatable status than Views at block ${currentBlock.toString()} (balance=${derivedBalance.toString()})`,
+              } satisfies ClusterIdentityCheckResult;
+            },
+          ),
+          Promise.all([currentBlockPromise, viewsBalancePromise, viewsLiquidatablePromise]).then(
+            ([currentBlock, viewsBalance, viewsLiquidatable]) => {
+              const derivedBalance = deriveCurrentClusterBalance(cluster, operators, daoValues, currentBlock);
+              const derivedBurnRate = deriveClusterBurnRate(cluster.validatorCount, operators, daoValues);
+              const liquidationCollateral = deriveLiquidationCollateral(derivedBurnRate, daoValues);
+              const expectedLiquidatable = deriveLiquidatableStatus(
+                cluster.active,
+                derivedBalance,
+                liquidationCollateral,
+              );
+              const status: CheckStatus = expectedLiquidatable === viewsLiquidatable ? "pass" : "fail";
+
+              return {
+                name: "liquidatable",
+                status,
+                subgraphValue: String(expectedLiquidatable),
+                viewsValue: String(viewsLiquidatable),
+                detail: status === "pass"
+                  ? `Derived liquidatable status matched Views at block ${currentBlock.toString()} (balance=${viewsBalance.toString()}, collateral=${liquidationCollateral.toString()})`
+                  : `Derived liquidatable status did not match Views at block ${currentBlock.toString()} (balance=${viewsBalance.toString()}, collateral=${liquidationCollateral.toString()})`,
+              } satisfies ClusterIdentityCheckResult;
+            },
+          ),
         ]);
       })();
 
