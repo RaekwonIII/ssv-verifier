@@ -55,3 +55,6 @@
 - Added a `verify-config` command that compares subgraph DAO values against `Views` network fee and liquidation parameter getters.
 - Added automated coverage for successful and failing DAO/network config verification flows.
 - Verified the slice with `npm test` and `npm run build`.
+- Selected issue #12: Add Fixture-Backed Regression Tests For Verification Flows as the final open feature.
+- Added fixture-backed regression coverage for the single-cluster verification path using stable pass and fail snapshots under `test/fixtures/verify-cluster/`.
+- Verified the fixture regressions run under the main `npm test` command alongside `npm run build`.
