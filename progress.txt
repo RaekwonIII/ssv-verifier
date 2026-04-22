@@ -36,3 +36,8 @@
 - Added a `verify-clusters` command that fetches all cluster ids for one network, reuses the single-cluster verifier, and reports aggregate pass/fail totals plus failing cluster ids.
 - Added automated coverage for batch aggregation and CLI parsing.
 - Verified the slice with `npm test` and `npm run build`.
+- Created branch `ralph/issue-8-batch-verify-both-networks`.
+- Selected issue #8: Support Batch Verification Across Both Networks as the next unblocked feature.
+- Extended `verify-clusters` so `--network both` runs the existing per-network batch verifier for `hoodi` and `mainnet`, then reports per-network and combined totals.
+- Added automated coverage for the combined multi-network summary path.
+- Verified the slice with `npm test` and `npm run build`.

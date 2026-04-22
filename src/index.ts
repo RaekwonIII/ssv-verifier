@@ -2,7 +2,7 @@ import { ZodError } from "zod";
 
 import { loadRuntimeConfig } from "./config/env.js";
 import { renderVerifyClusterJson, renderVerifyClusterSummary, verifyClusterIdentity } from "./commands/verify-cluster.js";
-import { renderVerifyClustersSummary, verifyAllClusters } from "./commands/verify-clusters.js";
+import { renderVerifyClustersSummary, verifyClusters } from "./commands/verify-clusters.js";
 import { renderVerifyNetworkSummary, verifyNetworkHealth } from "./commands/verify-network.js";
 import { isNetworkTarget, supportedNetworks, type NetworkTarget } from "./config/networks.js";
 
@@ -145,7 +145,7 @@ async function main(): Promise<void> {
     }
 
     if (args.command === "verify-clusters") {
-      const result = await verifyAllClusters(loadRuntimeConfig(args.network));
+      const result = await verifyClusters(loadRuntimeConfig(args.network));
       console.log(renderVerifyClustersSummary(result));
       process.exitCode = result.status === "pass" ? 0 : 1;
       return;
