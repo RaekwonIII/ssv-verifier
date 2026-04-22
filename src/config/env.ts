@@ -1,7 +1,7 @@
 import { config as loadDotenv } from "dotenv";
 import { z } from "zod";
 
-import { getFallbackSubgraphUrl, getPrimarySubgraphUrl, resolveNetworks, type NetworkTarget } from "./networks.js";
+import { getDaoAddress, getFallbackSubgraphUrl, getPrimarySubgraphUrl, resolveNetworks, type NetworkTarget } from "./networks.js";
 
 loadDotenv();
 
@@ -18,6 +18,7 @@ const rawEnvSchema = z.object({
 export interface NetworkRuntimeConfig {
   rpcUrl: string;
   viewsAddress: string;
+  daoAddress: string;
   subgraphPrimaryUrl: string;
   subgraphFallbackUrl?: string;
 }
@@ -41,12 +42,14 @@ export function loadRuntimeConfig(selectedNetwork: NetworkTarget, env: NodeJS.Pr
       hoodi: {
         rpcUrl: parsedEnv.HOODI_RPC_URL,
         viewsAddress: parsedEnv.HOODI_VIEWS_ADDRESS.toLowerCase(),
+        daoAddress: getDaoAddress("hoodi"),
         subgraphPrimaryUrl: getPrimarySubgraphUrl("hoodi"),
         ...(hoodiFallbackUrl ? { subgraphFallbackUrl: hoodiFallbackUrl } : {}),
       },
       mainnet: {
         rpcUrl: parsedEnv.MAINNET_RPC_URL,
         viewsAddress: parsedEnv.MAINNET_VIEWS_ADDRESS.toLowerCase(),
+        daoAddress: getDaoAddress("mainnet"),
         subgraphPrimaryUrl: getPrimarySubgraphUrl("mainnet"),
         ...(mainnetFallbackUrl ? { subgraphFallbackUrl: mainnetFallbackUrl } : {}),
       },

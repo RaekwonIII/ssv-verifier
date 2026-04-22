@@ -1,15 +1,19 @@
 import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
-import { fetchSubgraphCluster } from "../clients/subgraph.js";
-import { validateClusterStateWithViews, type ViewsClusterState } from "../clients/views.js";
+import { jsonRpcRequest } from "../clients/json-rpc.js";
+import { fetchSubgraphClusterAccounting } from "../clients/subgraph.js";
+import { getClusterBalanceFromViews, validateClusterStateWithViews, type ViewsClusterState } from "../clients/views.js";
+
+const LEGACY_SSV_PRECISION = 10_000_000n;
 
 export type CheckStatus = "pass" | "fail";
 
 export interface ClusterIdentityCheckResult {
-  name: "owner" | "operatorIds" | "validatorCount" | "active";
+  name: "owner" | "operatorIds" | "validatorCount" | "active" | "currentBalance";
   status: CheckStatus;
   detail: string;
   subgraphValue: string;
+  viewsValue?: string;
 }
 
 export interface VerifyClusterResult {
@@ -35,6 +39,21 @@ interface NormalizedCluster {
   balance: bigint;
 }
 
+interface NormalizedOperator {
+  id: bigint;
+  fee: bigint;
+  feeIndex: bigint;
+  feeIndexBlockNumber: bigint;
+}
+
+interface NormalizedDaoValues {
+  networkFee: bigint;
+  networkFeeIndex: bigint;
+  networkFeeIndexBlockNumber: bigint;
+  liquidationThreshold: bigint;
+  minimumLiquidationCollateral: bigint;
+}
+
 function normalizeClusterValue(cluster: {
   id: string;
   owner: { id: string };
@@ -54,6 +73,36 @@ function normalizeClusterValue(cluster: {
     index: BigInt(cluster.index),
     active: cluster.active,
     balance: BigInt(cluster.balance),
+  };
+}
+
+function normalizeOperatorValue(operator: {
+  id: string;
+  fee: string;
+  feeIndex: string;
+  feeIndexBlockNumber: string;
+}): NormalizedOperator {
+  return {
+    id: BigInt(operator.id),
+    fee: BigInt(operator.fee),
+    feeIndex: BigInt(operator.feeIndex),
+    feeIndexBlockNumber: BigInt(operator.feeIndexBlockNumber),
+  };
+}
+
+function normalizeDaoValues(daoValues: {
+  networkFee: string;
+  networkFeeIndex: string;
+  networkFeeIndexBlockNumber: string;
+  liquidationThreshold: string;
+  minimumLiquidationCollateral: string;
+}): NormalizedDaoValues {
+  return {
+    networkFee: BigInt(daoValues.networkFee),
+    networkFeeIndex: BigInt(daoValues.networkFeeIndex),
+    networkFeeIndexBlockNumber: BigInt(daoValues.networkFeeIndexBlockNumber),
+    liquidationThreshold: BigInt(daoValues.liquidationThreshold),
+    minimumLiquidationCollateral: BigInt(daoValues.minimumLiquidationCollateral),
   };
 }
 
@@ -92,13 +141,49 @@ function createFailureCheck(
   name: ClusterIdentityCheckResult["name"],
   subgraphValue: string,
   detail: string,
+  viewsValue?: string,
 ): ClusterIdentityCheckResult {
   return {
     name,
     status: "fail",
     subgraphValue,
     detail,
+    ...(viewsValue ? { viewsValue } : {}),
   };
+}
+
+function currentIndex(baseIndex: bigint, fee: bigint, startBlock: bigint, currentBlock: bigint): bigint {
+  return (baseIndex * LEGACY_SSV_PRECISION) + ((currentBlock - startBlock) * fee);
+}
+
+export function deriveCurrentClusterBalance(
+  cluster: Pick<NormalizedCluster, "validatorCount" | "networkFeeIndex" | "index" | "balance">,
+  operators: ReadonlyArray<Pick<NormalizedOperator, "fee" | "feeIndex" | "feeIndexBlockNumber">>,
+  daoValues: Pick<NormalizedDaoValues, "networkFee" | "networkFeeIndex" | "networkFeeIndexBlockNumber">,
+  currentBlock: bigint,
+): bigint {
+  const operatorIndexes = operators.reduce(
+    (sum, operator) => sum + currentIndex(operator.feeIndex, operator.fee, operator.feeIndexBlockNumber, currentBlock),
+    0n,
+  );
+  const networkIndex = currentIndex(
+    daoValues.networkFeeIndex,
+    daoValues.networkFee,
+    daoValues.networkFeeIndexBlockNumber,
+    currentBlock,
+  );
+  const totalCurrentIndexes = operatorIndexes + networkIndex;
+  const totalClusterIndex =
+    (cluster.index * LEGACY_SSV_PRECISION) + (cluster.networkFeeIndex * LEGACY_SSV_PRECISION);
+  const indexDelta = totalCurrentIndexes - totalClusterIndex;
+  const scale = BigInt(cluster.validatorCount);
+  const currentBalance = cluster.balance - (indexDelta * scale);
+
+  return currentBalance > 0n ? currentBalance : 0n;
+}
+
+function hexToBigInt(value: string): bigint {
+  return BigInt(value);
 }
 
 async function runMutationCheck(
@@ -137,13 +222,16 @@ export async function verifyClusterIdentity(
   const fetchFn = dependencies.fetchFn ?? fetch;
   const network = config.activeNetworks[0]!;
   const networkConfig = config.networks[network];
-  const subgraphCluster = await fetchSubgraphCluster(
+  const subgraphAccounting = await fetchSubgraphClusterAccounting(
     networkConfig.subgraphPrimaryUrl,
     networkConfig.subgraphFallbackUrl,
     clusterId,
+    networkConfig.daoAddress,
     fetchFn,
   );
-  const cluster = normalizeClusterValue(subgraphCluster.cluster);
+  const cluster = normalizeClusterValue(subgraphAccounting.cluster);
+  const operators = subgraphAccounting.operators.map(normalizeOperatorValue);
+  const daoValues = normalizeDaoValues(subgraphAccounting.daoValues);
   const baseline = await validateClusterStateWithViews(
     networkConfig.rpcUrl,
     networkConfig.viewsAddress,
@@ -161,9 +249,26 @@ export async function verifyClusterIdentity(
         createFailureCheck("operatorIds", formatOperatorIds(cluster.operatorIds), baselineFailure),
         createFailureCheck("validatorCount", String(cluster.validatorCount), baselineFailure),
         createFailureCheck("active", String(cluster.active), baselineFailure),
+        createFailureCheck("currentBalance", cluster.balance.toString(), baselineFailure),
       ]
-    : await Promise.all([
-        runMutationCheck("owner", cluster.owner, () =>
+    : await (() => {
+        const currentBlockPromise = jsonRpcRequest<string>(
+          networkConfig.rpcUrl,
+          "eth_blockNumber",
+          [],
+          fetchFn,
+        ).then(hexToBigInt);
+        const viewsBalancePromise = getClusterBalanceFromViews(
+          networkConfig.rpcUrl,
+          networkConfig.viewsAddress,
+          cluster.owner,
+          cluster.operatorIds,
+          toViewsClusterState(cluster),
+          fetchFn,
+        );
+
+        return Promise.all([
+          runMutationCheck("owner", cluster.owner, () =>
           validateClusterStateWithViews(
             networkConfig.rpcUrl,
             networkConfig.viewsAddress,
@@ -209,12 +314,27 @@ export async function verifyClusterIdentity(
             fetchFn,
           ),
         ),
-      ]);
+          Promise.all([currentBlockPromise, viewsBalancePromise]).then(([currentBlock, viewsBalance]) => {
+            const derivedBalance = deriveCurrentClusterBalance(cluster, operators, daoValues, currentBlock);
+            const status: CheckStatus = derivedBalance === viewsBalance ? "pass" : "fail";
+
+            return {
+              name: "currentBalance",
+              status,
+              subgraphValue: derivedBalance.toString(),
+              viewsValue: viewsBalance.toString(),
+              detail: status === "pass"
+                ? `Derived balance matched Views at block ${currentBlock.toString()}`
+                : `Derived balance did not match Views at block ${currentBlock.toString()}`,
+            } satisfies ClusterIdentityCheckResult;
+          }),
+        ]);
+      })();
 
   return {
     network,
     clusterId: cluster.id,
-    subgraphSource: subgraphCluster.source,
+    subgraphSource: subgraphAccounting.source,
     status: checks.every((check) => check.status === "pass") ? "pass" : "fail",
     checks,
   };
@@ -229,7 +349,10 @@ export function renderVerifyClusterSummary(result: VerifyClusterResult): string 
   ];
 
   for (const check of result.checks) {
-    lines.push(`- ${check.name}: ${check.status.toUpperCase()} (subgraph=${check.subgraphValue}; ${check.detail})`);
+    const values = check.viewsValue
+      ? `expected=${check.subgraphValue}; views=${check.viewsValue}`
+      : `subgraph=${check.subgraphValue}`;
+    lines.push(`- ${check.name}: ${check.status.toUpperCase()} (${values}; ${check.detail})`);
   }
 
   return lines.join("\n");

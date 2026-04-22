@@ -13,6 +13,22 @@ const singleClusterQuery = `query ($id: ID!) {
   }
 }`;
 
+const clusterAccountingQuery = `query ($operatorIds: [String!]!, $daoId: ID!) {
+  operators(where: { id_in: $operatorIds }) {
+    id
+    fee
+    feeIndex
+    feeIndexBlockNumber
+  }
+  daovalues(id: $daoId) {
+    networkFee
+    networkFeeIndex
+    networkFeeIndexBlockNumber
+    liquidationThreshold
+    minimumLiquidationCollateral
+  }
+}`;
+
 interface SubgraphMetaResponse {
   data?: {
     _meta?: {
@@ -49,6 +65,28 @@ export interface SubgraphClusterRecord {
 
 export interface SubgraphClusterResult {
   cluster: SubgraphClusterRecord;
+  source: "primary" | "fallback";
+}
+
+export interface SubgraphOperatorRecord {
+  id: string;
+  fee: string;
+  feeIndex: string;
+  feeIndexBlockNumber: string;
+}
+
+export interface SubgraphDaoValuesRecord {
+  networkFee: string;
+  networkFeeIndex: string;
+  networkFeeIndexBlockNumber: string;
+  liquidationThreshold: string;
+  minimumLiquidationCollateral: string;
+}
+
+export interface SubgraphClusterAccountingResult {
+  cluster: SubgraphClusterRecord;
+  operators: SubgraphOperatorRecord[];
+  daoValues: SubgraphDaoValuesRecord;
   source: "primary" | "fallback";
 }
 
@@ -149,5 +187,61 @@ export async function fetchSubgraphCluster(
     }
 
     return fetchSubgraphClusterOnce(fallbackUrl, clusterId, "fallback", fetchFn);
+  }
+}
+
+async function fetchSubgraphClusterAccountingOnce(
+  url: string,
+  clusterId: string,
+  daoAddress: string,
+  source: "primary" | "fallback",
+  fetchFn: typeof fetch,
+): Promise<SubgraphClusterAccountingResult> {
+  const clusterResult = await fetchSubgraphClusterOnce(url, clusterId, source, fetchFn);
+  const payload = await postGraphql<{
+    operators?: SubgraphOperatorRecord[];
+    daovalues?: SubgraphDaoValuesRecord | null;
+  }>(
+    url,
+    clusterAccountingQuery,
+    { operatorIds: clusterResult.cluster.operatorIds, daoId: daoAddress },
+    fetchFn,
+  );
+  const operators = payload.operators ?? [];
+  const missingOperatorIds = clusterResult.cluster.operatorIds.filter(
+    (operatorId) => !operators.some((operator) => operator.id === operatorId),
+  );
+
+  if (missingOperatorIds.length > 0) {
+    throw new Error(`Subgraph response was missing operators: ${missingOperatorIds.join(", ")}`);
+  }
+
+  if (!payload.daovalues) {
+    throw new Error(`Subgraph response did not include DAO values for ${daoAddress}`);
+  }
+
+  return {
+    cluster: clusterResult.cluster,
+    operators,
+    daoValues: payload.daovalues,
+    source,
+  };
+}
+
+export async function fetchSubgraphClusterAccounting(
+  primaryUrl: string,
+  fallbackUrl: string | undefined,
+  clusterId: string,
+  daoAddress: string,
+  fetchFn: typeof fetch = fetch,
+): Promise<SubgraphClusterAccountingResult> {
+  try {
+    return await fetchSubgraphClusterAccountingOnce(primaryUrl, clusterId, daoAddress, "primary", fetchFn);
+  } catch (primaryError) {
+    if (!fallbackUrl) {
+      throw primaryError;
+    }
+
+    return fetchSubgraphClusterAccountingOnce(fallbackUrl, clusterId, daoAddress, "fallback", fetchFn);
   }
 }
