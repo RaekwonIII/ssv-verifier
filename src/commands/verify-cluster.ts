@@ -471,3 +471,7 @@ export function renderVerifyClusterSummary(result: VerifyClusterResult): string 
 
   return lines.join("\n");
 }
+
+export function renderVerifyClusterJson(result: VerifyClusterResult): string {
+  return JSON.stringify(result, null, 2);
+}
