@@ -29,6 +29,12 @@ const clusterAccountingQuery = `query ($operatorIds: [String!]!, $daoId: ID!) {
   }
 }`;
 
+const clusterIdsQuery = `query ($first: Int!, $skip: Int!) {
+  clusters(first: $first, skip: $skip, orderBy: id, orderDirection: asc) {
+    id
+  }
+}`;
+
 interface SubgraphMetaResponse {
   data?: {
     _meta?: {
@@ -87,6 +93,11 @@ export interface SubgraphClusterAccountingResult {
   cluster: SubgraphClusterRecord;
   operators: SubgraphOperatorRecord[];
   daoValues: SubgraphDaoValuesRecord;
+  source: "primary" | "fallback";
+}
+
+export interface SubgraphClusterIdsResult {
+  clusterIds: string[];
   source: "primary" | "fallback";
 }
 
@@ -243,5 +254,52 @@ export async function fetchSubgraphClusterAccounting(
     }
 
     return fetchSubgraphClusterAccountingOnce(fallbackUrl, clusterId, daoAddress, "fallback", fetchFn);
+  }
+}
+
+async function fetchAllSubgraphClusterIdsOnce(
+  url: string,
+  source: "primary" | "fallback",
+  fetchFn: typeof fetch,
+): Promise<SubgraphClusterIdsResult> {
+  const clusterIds: string[] = [];
+  let skip = 0;
+  const first = 1000;
+
+  while (true) {
+    const payload = await postGraphql<{ clusters?: Array<{ id: string }> }>(
+      url,
+      clusterIdsQuery,
+      { first, skip },
+      fetchFn,
+    );
+    const page = payload.clusters ?? [];
+
+    clusterIds.push(...page.map((cluster) => cluster.id));
+
+    if (page.length < first) {
+      return {
+        clusterIds,
+        source,
+      };
+    }
+
+    skip += page.length;
+  }
+}
+
+export async function fetchAllSubgraphClusterIds(
+  primaryUrl: string,
+  fallbackUrl: string | undefined,
+  fetchFn: typeof fetch = fetch,
+): Promise<SubgraphClusterIdsResult> {
+  try {
+    return await fetchAllSubgraphClusterIdsOnce(primaryUrl, "primary", fetchFn);
+  } catch (primaryError) {
+    if (!fallbackUrl) {
+      throw primaryError;
+    }
+
+    return fetchAllSubgraphClusterIdsOnce(fallbackUrl, "fallback", fetchFn);
   }
 }

@@ -27,6 +27,14 @@ describe("parseCliArgs", () => {
       output: "text",
     });
   });
+
+  it("parses the verify-clusters command", () => {
+    expect(parseCliArgs(["verify-clusters", "--network", "hoodi"])).toEqual({
+      command: "verify-clusters",
+      network: "hoodi",
+      output: "text",
+    });
+  });
 });
 
 describe("loadRuntimeConfig", () => {
