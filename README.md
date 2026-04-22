@@ -32,12 +32,19 @@ npm run dev -- verify-network --network hoodi
 npm run dev -- verify-network --network mainnet
 ```
 
+Run the single-cluster identity verifier:
+
+```bash
+npm run dev -- verify-cluster --network hoodi --cluster 0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-7-523
+```
+
 Build the CLI:
 
 ```bash
 npm run build
 node dist/index.js --network hoodi
 node dist/index.js verify-network --network hoodi
+node dist/index.js verify-cluster --network hoodi --cluster 0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-7-523
 ```
 
 Run tests:

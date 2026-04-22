@@ -1,23 +1,29 @@
 import { ZodError } from "zod";
 
 import { loadRuntimeConfig } from "./config/env.js";
+import { renderVerifyClusterSummary, verifyClusterIdentity } from "./commands/verify-cluster.js";
 import { renderVerifyNetworkSummary, verifyNetworkHealth } from "./commands/verify-network.js";
 import { isNetworkTarget, supportedNetworks, type NetworkTarget } from "./config/networks.js";
 
 interface CliArgs {
-  command: "bootstrap" | "verify-network";
+  command: "bootstrap" | "verify-network" | "verify-cluster";
   network: NetworkTarget;
+  clusterId?: string;
 }
 
 export function parseCliArgs(argv: string[]): CliArgs {
   let command: CliArgs["command"] = "bootstrap";
   let network: NetworkTarget | undefined;
+  let clusterId: string | undefined;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
 
-    if (index === 0 && arg === "verify-network") {
+    if (index === 0 && (arg === "verify-network" || arg === "verify-cluster")) {
       command = "verify-network";
+      if (arg === "verify-cluster") {
+        command = "verify-cluster";
+      }
       continue;
     }
 
@@ -38,6 +44,18 @@ export function parseCliArgs(argv: string[]): CliArgs {
       continue;
     }
 
+    if (arg === "--cluster" || arg === "-c") {
+      const value = argv[index + 1];
+
+      if (!value) {
+        throw new Error("Missing required --cluster value.");
+      }
+
+      clusterId = value;
+      index += 1;
+      continue;
+    }
+
     throw new Error(`Unknown argument: ${arg}`);
   }
 
@@ -45,7 +63,15 @@ export function parseCliArgs(argv: string[]): CliArgs {
     throw new Error("Missing required --network option.");
   }
 
-  return { command, network };
+  if (command === "verify-cluster" && !clusterId) {
+    throw new Error("Missing required --cluster option.");
+  }
+
+  return {
+    command,
+    network,
+    ...(clusterId ? { clusterId } : {}),
+  };
 }
 
 export function renderBootstrapSummary(args: CliArgs): string {
@@ -66,13 +92,15 @@ export function renderBootstrapSummary(args: CliArgs): string {
 
 export function printHelp(): void {
   const usage = [
-    "Usage: ssv-verifier [verify-network] --network <hoodi|mainnet|both>",
+    "Usage: ssv-verifier [verify-network|verify-cluster] --network <hoodi|mainnet|both> [--cluster <id>]",
     "",
     "Commands:",
     "  verify-network  Run RPC, subgraph, and Views health checks",
+    "  verify-cluster  Verify one cluster identity against Views",
     "",
     "Options:",
     "  -n, --network   Select which network scope to run",
+    "  -c, --cluster   Cluster identifier for verify-cluster",
     "  -h, --help      Show this help text",
   ].join("\n");
 
@@ -86,6 +114,13 @@ async function main(): Promise<void> {
       const results = await verifyNetworkHealth(loadRuntimeConfig(args.network));
       console.log(renderVerifyNetworkSummary(results));
       process.exitCode = results.every((result) => result.status === "pass") ? 0 : 1;
+      return;
+    }
+
+    if (args.command === "verify-cluster") {
+      const result = await verifyClusterIdentity(loadRuntimeConfig(args.network), args.clusterId ?? "");
+      console.log(renderVerifyClusterSummary(result));
+      process.exitCode = result.status === "pass" ? 0 : 1;
       return;
     }
 
