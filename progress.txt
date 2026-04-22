@@ -8,3 +8,53 @@
 - Started issue #2: added a `verify-network` health check command for RPC reachability, subgraph `_meta`, and deployed bytecode at the configured `Views` address.
 - Expanded automated coverage to include successful and failing `verify-network` runs.
 - Verified the slice with `npm test` and `npm run build`.
+- Created branch `ralph/issue-3-verify-cluster-identity` for iteration 2.
+- Selected issue #3: Verify Cluster Identity For One Cluster as the next unblocked feature.
+- Added a `verify-cluster` command, single-cluster subgraph fetch support, and a `Views` client that uses on-chain hashed-state validation to verify owner, operator IDs, validator count, and active status.
+- Added automated coverage for successful and failing `verify-cluster` flows.
+- Verified the slice with `npm test` and `npm run build`.
+2026-04-22 Iteration 3
+- Created branch `ralph/issue-4-derive-cluster-balance`.
+- Selected issue #4: Verify Derived Current Cluster Balance as the next unblocked feature.
+- Extended `verify-cluster` to fetch operator and DAO accounting inputs, derive the current cluster balance at the latest RPC block, and compare that value against `Views.getBalance(...)`.
+- Added regression coverage for the balance derivation formula plus successful and failing end-to-end balance comparisons.
+- Verified the slice with `npm test` and `npm run build`.
+- Created branch `ralph/issue-5-verify-cluster-liquidation`.
+- Selected issue #5: Verify Liquidation State For One Cluster as the next unblocked feature.
+- Extended `verify-cluster` to derive burn rate and liquidation collateral, then compare burn rate and liquidatable status against `Views` using the same block-context as the balance check.
+- Added regression coverage for liquidation formulas plus successful and failing liquidation comparison paths.
+- Verified the slice with `npm test` and `npm run build`.
+- Reviewed open issues #5 through #12 and kept work scoped to the next unblocked feature in dependency order.
+- Re-ran `npm test` and `npm run build` on branch `ralph/issue-5-verify-cluster-liquidation` before closing issue #5.
+- Created branch `ralph/issue-6-json-report-output`.
+- Selected issue #6: Add JSON Report Output For Single-Cluster Checks as the next unblocked feature.
+- Added `--output text|json` for `verify-cluster`, keeping the existing human-readable summary and exposing the full result payload as structured JSON.
+- Added automated coverage for JSON output parsing plus successful and failing JSON result payloads.
+- Verified the slice with `npm test` and `npm run build`.
+- Created branch `ralph/issue-7-batch-verify-network`.
+- Selected issue #7: Batch Verify All Clusters On One Network as the next unblocked feature.
+- Added a `verify-clusters` command that fetches all cluster ids for one network, reuses the single-cluster verifier, and reports aggregate pass/fail totals plus failing cluster ids.
+- Added automated coverage for batch aggregation and CLI parsing.
+- Verified the slice with `npm test` and `npm run build`.
+- Created branch `ralph/issue-8-batch-verify-both-networks`.
+- Selected issue #8: Support Batch Verification Across Both Networks as the next unblocked feature.
+- Extended `verify-clusters` so `--network both` runs the existing per-network batch verifier for `hoodi` and `mainnet`, then reports per-network and combined totals.
+- Added automated coverage for the combined multi-network summary path.
+- Verified the slice with `npm test` and `npm run build`.
+- Created branch `ralph/issue-9-lag-aware-classification`.
+- Selected issue #9: Add Lag-Aware Result Classification as the next unblocked feature.
+- Extended `verify-cluster` to capture subgraph `_meta` freshness, compare it against the current chain head, and downgrade lag-affected mismatches from hard failures to warnings in both text and JSON output.
+- Updated batch aggregation to track warned checks separately from true failures.
+- Added automated coverage for a lag-affected warning path and a fresh non-lag mismatch path.
+- Verified the slice with `npm test` and `npm run build`.
+- Selected issue #10: Verify Operator State End To End as the next unblocked feature.
+- Added a `verify-operator` command that compares subgraph operator fee, validator count, and active status against `Views.getOperatorFee(...)` and `Views.getOperatorById(...)`.
+- Added automated coverage for successful and failing operator verification flows.
+- Verified the slice with `npm test` and `npm run build`.
+- Selected issue #11: Verify DAO And Network Config End To End as the next unblocked feature.
+- Added a `verify-config` command that compares subgraph DAO values against `Views` network fee and liquidation parameter getters.
+- Added automated coverage for successful and failing DAO/network config verification flows.
+- Verified the slice with `npm test` and `npm run build`.
+- Selected issue #12: Add Fixture-Backed Regression Tests For Verification Flows as the final open feature.
+- Added fixture-backed regression coverage for the single-cluster verification path using stable pass and fail snapshots under `test/fixtures/verify-cluster/`.
+- Verified the fixture regressions run under the main `npm test` command alongside `npm run build`.
