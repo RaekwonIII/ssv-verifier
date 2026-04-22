@@ -12,7 +12,16 @@ import {
 
 const LEGACY_SSV_PRECISION = 10_000_000n;
 
-export type CheckStatus = "pass" | "fail";
+export type CheckStatus = "pass" | "warn" | "fail";
+
+export interface SubgraphFreshness {
+  indexedBlockNumber: number;
+  chainHeadBlockNumber: number;
+  lagBlocks: number;
+  status: "fresh" | "lagging";
+}
+
+export type CheckClassification = "verified" | "mismatch" | "lag-affected";
 
 export interface ClusterIdentityCheckResult {
   name:
@@ -25,6 +34,7 @@ export interface ClusterIdentityCheckResult {
     | "liquidationCollateral"
     | "liquidatable";
   status: CheckStatus;
+  classification: CheckClassification;
   detail: string;
   subgraphValue: string;
   viewsValue?: string;
@@ -34,6 +44,7 @@ export interface VerifyClusterResult {
   network: SingleNetwork;
   clusterId: string;
   subgraphSource: "primary" | "fallback";
+  freshness: SubgraphFreshness;
   status: CheckStatus;
   checks: ClusterIdentityCheckResult[];
 }
@@ -160,10 +171,62 @@ function createFailureCheck(
   return {
     name,
     status: "fail",
+    classification: "mismatch",
     subgraphValue,
     detail,
     ...(viewsValue ? { viewsValue } : {}),
   };
+}
+
+function createFreshness(indexedBlockNumber: bigint, chainHeadBlockNumber: bigint): SubgraphFreshness {
+  const lagBlocks = chainHeadBlockNumber > indexedBlockNumber ? chainHeadBlockNumber - indexedBlockNumber : 0n;
+
+  return {
+    indexedBlockNumber: Number(indexedBlockNumber),
+    chainHeadBlockNumber: Number(chainHeadBlockNumber),
+    lagBlocks: Number(lagBlocks),
+    status: lagBlocks === 0n ? "fresh" : "lagging",
+  };
+}
+
+function applyFreshnessClassification(
+  checks: ClusterIdentityCheckResult[],
+  freshness: SubgraphFreshness,
+): ClusterIdentityCheckResult[] {
+  if (freshness.status === "fresh") {
+    return checks.map((check) => ({
+      ...check,
+      classification: check.status === "pass" ? "verified" : "mismatch",
+    }));
+  }
+
+  return checks.map((check) => {
+    if (check.status !== "fail") {
+      return {
+        ...check,
+        classification: "verified",
+      };
+    }
+
+    return {
+      ...check,
+      status: "warn",
+      classification: "lag-affected",
+      detail: `${check.detail}; subgraph trails chain head by ${freshness.lagBlocks} block(s)`,
+    };
+  });
+}
+
+function summarizeStatus(checks: ClusterIdentityCheckResult[]): CheckStatus {
+  if (checks.some((check) => check.status === "fail")) {
+    return "fail";
+  }
+
+  if (checks.some((check) => check.status === "warn")) {
+    return "warn";
+  }
+
+  return "pass";
 }
 
 function currentIndex(baseIndex: bigint, fee: bigint, startBlock: bigint, currentBlock: bigint): bigint {
@@ -232,6 +295,7 @@ async function runMutationCheck(
     return {
       name,
       status: "pass",
+      classification: "verified",
       subgraphValue,
       detail: `Subgraph value matched the Views-validated state; altered input was rejected (${result.detail})`,
     };
@@ -240,6 +304,7 @@ async function runMutationCheck(
   return {
     name,
     status: "fail",
+    classification: "mismatch",
     subgraphValue,
     detail: `Views also accepted an altered ${name} value, so the match could not be proven`,
   };
@@ -257,6 +322,12 @@ export async function verifyClusterIdentity(
   const fetchFn = dependencies.fetchFn ?? fetch;
   const network = config.activeNetworks[0]!;
   const networkConfig = config.networks[network];
+  const chainHeadBlockPromise = jsonRpcRequest<string>(
+    networkConfig.rpcUrl,
+    "eth_blockNumber",
+    [],
+    fetchFn,
+  ).then(hexToBigInt);
   const subgraphAccounting = await fetchSubgraphClusterAccounting(
     networkConfig.subgraphPrimaryUrl,
     networkConfig.subgraphFallbackUrl,
@@ -267,6 +338,8 @@ export async function verifyClusterIdentity(
   const cluster = normalizeClusterValue(subgraphAccounting.cluster);
   const operators = subgraphAccounting.operators.map(normalizeOperatorValue);
   const daoValues = normalizeDaoValues(subgraphAccounting.daoValues);
+  const chainHeadBlock = await chainHeadBlockPromise;
+  const freshness = createFreshness(BigInt(subgraphAccounting.indexedBlockNumber), chainHeadBlock);
   const baseline = await validateClusterStateWithViews(
     networkConfig.rpcUrl,
     networkConfig.viewsAddress,
@@ -290,12 +363,6 @@ export async function verifyClusterIdentity(
         createFailureCheck("liquidatable", "unknown", baselineFailure),
       ]
     : await (() => {
-        const currentBlockPromise = jsonRpcRequest<string>(
-          networkConfig.rpcUrl,
-          "eth_blockNumber",
-          [],
-          fetchFn,
-        ).then(hexToBigInt);
         const viewsBalancePromise = getClusterBalanceFromViews(
           networkConfig.rpcUrl,
           networkConfig.viewsAddress,
@@ -368,18 +435,19 @@ export async function verifyClusterIdentity(
             fetchFn,
           ),
         ),
-          Promise.all([currentBlockPromise, viewsBalancePromise]).then(([currentBlock, viewsBalance]) => {
-            const derivedBalance = deriveCurrentClusterBalance(cluster, operators, daoValues, currentBlock);
+          viewsBalancePromise.then((viewsBalance) => {
+            const derivedBalance = deriveCurrentClusterBalance(cluster, operators, daoValues, chainHeadBlock);
             const status: CheckStatus = derivedBalance === viewsBalance ? "pass" : "fail";
 
             return {
               name: "currentBalance",
               status,
+              classification: status === "pass" ? "verified" : "mismatch",
               subgraphValue: derivedBalance.toString(),
               viewsValue: viewsBalance.toString(),
               detail: status === "pass"
-                ? `Derived balance matched Views at block ${currentBlock.toString()}`
-                : `Derived balance did not match Views at block ${currentBlock.toString()}`,
+                ? `Derived balance matched Views at block ${chainHeadBlock.toString()}`
+                : `Derived balance did not match Views at block ${chainHeadBlock.toString()}`,
             } satisfies ClusterIdentityCheckResult;
           }),
           viewsBurnRatePromise.then((viewsBurnRate) => {
@@ -389,6 +457,7 @@ export async function verifyClusterIdentity(
             return {
               name: "burnRate",
               status,
+              classification: status === "pass" ? "verified" : "mismatch",
               subgraphValue: derivedBurnRate.toString(),
               viewsValue: viewsBurnRate.toString(),
               detail: status === "pass"
@@ -396,9 +465,9 @@ export async function verifyClusterIdentity(
                 : "Derived burn rate did not match Views",
             } satisfies ClusterIdentityCheckResult;
           }),
-          Promise.all([currentBlockPromise, viewsBalancePromise, viewsLiquidatablePromise]).then(
-            ([currentBlock, viewsBalance, viewsLiquidatable]) => {
-              const derivedBalance = deriveCurrentClusterBalance(cluster, operators, daoValues, currentBlock);
+          Promise.all([viewsBalancePromise, viewsLiquidatablePromise]).then(
+            ([viewsBalance, viewsLiquidatable]) => {
+              const derivedBalance = deriveCurrentClusterBalance(cluster, operators, daoValues, chainHeadBlock);
               const derivedBurnRate = deriveClusterBurnRate(cluster.validatorCount, operators, daoValues);
               const liquidationCollateral = deriveLiquidationCollateral(derivedBurnRate, daoValues);
               const expectedLiquidatable = deriveLiquidatableStatus(
@@ -411,17 +480,18 @@ export async function verifyClusterIdentity(
               return {
                 name: "liquidationCollateral",
                 status,
+                classification: status === "pass" ? "verified" : "mismatch",
                 subgraphValue: liquidationCollateral.toString(),
                 viewsValue: String(viewsLiquidatable),
                 detail: status === "pass"
-                  ? `Derived collateral implied the same liquidatable status as Views at block ${currentBlock.toString()} (balance=${derivedBalance.toString()})`
-                  : `Derived collateral implied a different liquidatable status than Views at block ${currentBlock.toString()} (balance=${derivedBalance.toString()})`,
+                  ? `Derived collateral implied the same liquidatable status as Views at block ${chainHeadBlock.toString()} (balance=${derivedBalance.toString()})`
+                  : `Derived collateral implied a different liquidatable status than Views at block ${chainHeadBlock.toString()} (balance=${derivedBalance.toString()})`,
               } satisfies ClusterIdentityCheckResult;
             },
           ),
-          Promise.all([currentBlockPromise, viewsBalancePromise, viewsLiquidatablePromise]).then(
-            ([currentBlock, viewsBalance, viewsLiquidatable]) => {
-              const derivedBalance = deriveCurrentClusterBalance(cluster, operators, daoValues, currentBlock);
+          Promise.all([viewsBalancePromise, viewsLiquidatablePromise]).then(
+            ([viewsBalance, viewsLiquidatable]) => {
+              const derivedBalance = deriveCurrentClusterBalance(cluster, operators, daoValues, chainHeadBlock);
               const derivedBurnRate = deriveClusterBurnRate(cluster.validatorCount, operators, daoValues);
               const liquidationCollateral = deriveLiquidationCollateral(derivedBurnRate, daoValues);
               const expectedLiquidatable = deriveLiquidatableStatus(
@@ -434,23 +504,27 @@ export async function verifyClusterIdentity(
               return {
                 name: "liquidatable",
                 status,
+                classification: status === "pass" ? "verified" : "mismatch",
                 subgraphValue: String(expectedLiquidatable),
                 viewsValue: String(viewsLiquidatable),
                 detail: status === "pass"
-                  ? `Derived liquidatable status matched Views at block ${currentBlock.toString()} (balance=${viewsBalance.toString()}, collateral=${liquidationCollateral.toString()})`
-                  : `Derived liquidatable status did not match Views at block ${currentBlock.toString()} (balance=${viewsBalance.toString()}, collateral=${liquidationCollateral.toString()})`,
+                  ? `Derived liquidatable status matched Views at block ${chainHeadBlock.toString()} (balance=${viewsBalance.toString()}, collateral=${liquidationCollateral.toString()})`
+                  : `Derived liquidatable status did not match Views at block ${chainHeadBlock.toString()} (balance=${viewsBalance.toString()}, collateral=${liquidationCollateral.toString()})`,
               } satisfies ClusterIdentityCheckResult;
             },
           ),
         ]);
       })();
 
+  const classifiedChecks = applyFreshnessClassification(checks, freshness);
+
   return {
     network,
     clusterId: cluster.id,
     subgraphSource: subgraphAccounting.source,
-    status: checks.every((check) => check.status === "pass") ? "pass" : "fail",
-    checks,
+    freshness,
+    status: summarizeStatus(classifiedChecks),
+    checks: classifiedChecks,
   };
 }
 
@@ -460,13 +534,14 @@ export function renderVerifyClusterSummary(result: VerifyClusterResult): string 
     `network: ${result.network}`,
     `cluster: ${result.clusterId}`,
     `subgraph source: ${result.subgraphSource}`,
+    `subgraph freshness: ${result.freshness.status} (indexed=${result.freshness.indexedBlockNumber}, chainHead=${result.freshness.chainHeadBlockNumber}, lag=${result.freshness.lagBlocks})`,
   ];
 
   for (const check of result.checks) {
     const values = check.viewsValue
       ? `expected=${check.subgraphValue}; views=${check.viewsValue}`
       : `subgraph=${check.subgraphValue}`;
-    lines.push(`- ${check.name}: ${check.status.toUpperCase()} (${values}; ${check.detail})`);
+    lines.push(`- ${check.name}: ${check.status.toUpperCase()} [${check.classification}] (${values}; ${check.detail})`);
   }
 
   return lines.join("\n");

@@ -10,6 +10,7 @@ export interface VerifyClustersResult {
   totalClusters: number;
   totalChecks: number;
   passedChecks: number;
+  warnedChecks: number;
   failedChecks: number;
   clusterResults: VerifyClusterResult[];
 }
@@ -26,8 +27,21 @@ export interface VerifyClustersRunResult {
   totalClusters: number;
   totalChecks: number;
   passedChecks: number;
+  warnedChecks: number;
   failedChecks: number;
   networkResults: VerifyClustersResult[];
+}
+
+function summarizeStatus(statuses: CheckStatus[]): CheckStatus {
+  if (statuses.includes("fail")) {
+    return "fail";
+  }
+
+  if (statuses.includes("warn")) {
+    return "warn";
+  }
+
+  return "pass";
 }
 
 async function verifyAllClustersForNetwork(
@@ -57,15 +71,23 @@ async function verifyAllClustersForNetwork(
     (sum, result) => sum + result.checks.filter((check) => check.status === "pass").length,
     0,
   );
-  const failedChecks = totalChecks - passedChecks;
+  const warnedChecks = clusterResults.reduce(
+    (sum, result) => sum + result.checks.filter((check) => check.status === "warn").length,
+    0,
+  );
+  const failedChecks = clusterResults.reduce(
+    (sum, result) => sum + result.checks.filter((check) => check.status === "fail").length,
+    0,
+  );
 
   return {
     network,
-    status: failedChecks === 0 ? "pass" : "fail",
+    status: summarizeStatus(clusterResults.map((result) => result.status)),
     subgraphSource: clusterListing.source,
     totalClusters: clusterResults.length,
     totalChecks,
     passedChecks,
+    warnedChecks,
     failedChecks,
     clusterResults,
   };
@@ -93,14 +115,16 @@ export async function verifyClusters(
   const totalClusters = networkResults.reduce((sum, result) => sum + result.totalClusters, 0);
   const totalChecks = networkResults.reduce((sum, result) => sum + result.totalChecks, 0);
   const passedChecks = networkResults.reduce((sum, result) => sum + result.passedChecks, 0);
-  const failedChecks = totalChecks - passedChecks;
+  const warnedChecks = networkResults.reduce((sum, result) => sum + result.warnedChecks, 0);
+  const failedChecks = networkResults.reduce((sum, result) => sum + result.failedChecks, 0);
 
   return {
     selectedNetwork: config.selectedNetwork,
-    status: failedChecks === 0 ? "pass" : "fail",
+    status: summarizeStatus(networkResults.map((result) => result.status)),
     totalClusters,
     totalChecks,
     passedChecks,
+    warnedChecks,
     failedChecks,
     networkResults,
   };
@@ -111,17 +135,19 @@ export function renderVerifyClustersSummary(result: VerifyClustersRunResult): st
     `verify-clusters ${result.status.toUpperCase()}`,
     `network selection: ${result.selectedNetwork}`,
     `clusters: ${result.totalClusters}`,
-    `checks: ${result.passedChecks} passed / ${result.failedChecks} failed / ${result.totalChecks} total`,
+    `checks: ${result.passedChecks} passed / ${result.warnedChecks} warned / ${result.failedChecks} failed / ${result.totalChecks} total`,
   ];
 
   for (const networkResult of result.networkResults) {
     lines.push(
-      `- ${networkResult.network}: ${networkResult.passedChecks} passed / ${networkResult.failedChecks} failed / ${networkResult.totalChecks} total (source=${networkResult.subgraphSource})`,
+      `- ${networkResult.network}: ${networkResult.passedChecks} passed / ${networkResult.warnedChecks} warned / ${networkResult.failedChecks} failed / ${networkResult.totalChecks} total (source=${networkResult.subgraphSource})`,
     );
 
-    for (const clusterResult of networkResult.clusterResults.filter((entry) => entry.status === "fail")) {
-      const failedChecks = clusterResult.checks.filter((check) => check.status === "fail").map((check) => check.name);
-      lines.push(`- ${networkResult.network}/${clusterResult.clusterId}: failed checks=${failedChecks.join(", ")}`);
+    for (const clusterResult of networkResult.clusterResults.filter((entry) => entry.status !== "pass")) {
+      const nonPassingChecks = clusterResult.checks
+        .filter((check) => check.status !== "pass")
+        .map((check) => `${check.name}:${check.status}`);
+      lines.push(`- ${networkResult.network}/${clusterResult.clusterId}: non-passing checks=${nonPassingChecks.join(", ")}`);
     }
   }
 

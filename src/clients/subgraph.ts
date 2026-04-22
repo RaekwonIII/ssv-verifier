@@ -93,6 +93,7 @@ export interface SubgraphClusterAccountingResult {
   cluster: SubgraphClusterRecord;
   operators: SubgraphOperatorRecord[];
   daoValues: SubgraphDaoValuesRecord;
+  indexedBlockNumber: number;
   source: "primary" | "fallback";
 }
 
@@ -208,7 +209,10 @@ async function fetchSubgraphClusterAccountingOnce(
   source: "primary" | "fallback",
   fetchFn: typeof fetch,
 ): Promise<SubgraphClusterAccountingResult> {
-  const clusterResult = await fetchSubgraphClusterOnce(url, clusterId, source, fetchFn);
+  const [metaResult, clusterResult] = await Promise.all([
+    fetchSubgraphMetaOnce(url, source, fetchFn),
+    fetchSubgraphClusterOnce(url, clusterId, source, fetchFn),
+  ]);
   const payload = await postGraphql<{
     operators?: SubgraphOperatorRecord[];
     daovalues?: SubgraphDaoValuesRecord | null;
@@ -235,6 +239,7 @@ async function fetchSubgraphClusterAccountingOnce(
     cluster: clusterResult.cluster,
     operators,
     daoValues: payload.daovalues,
+    indexedBlockNumber: metaResult.indexedBlockNumber,
     source,
   };
 }
