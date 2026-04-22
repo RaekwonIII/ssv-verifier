@@ -31,3 +31,8 @@
 - Added `--output text|json` for `verify-cluster`, keeping the existing human-readable summary and exposing the full result payload as structured JSON.
 - Added automated coverage for JSON output parsing plus successful and failing JSON result payloads.
 - Verified the slice with `npm test` and `npm run build`.
+- Created branch `ralph/issue-7-batch-verify-network`.
+- Selected issue #7: Batch Verify All Clusters On One Network as the next unblocked feature.
+- Added a `verify-clusters` command that fetches all cluster ids for one network, reuses the single-cluster verifier, and reports aggregate pass/fail totals plus failing cluster ids.
+- Added automated coverage for batch aggregation and CLI parsing.
+- Verified the slice with `npm test` and `npm run build`.
