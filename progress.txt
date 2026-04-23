@@ -69,3 +69,7 @@
 - Added a public `health-check` command alias, made the no-subcommand CLI route default to the existing reachability flow, and updated the human-readable summary/help text to match.
 - Added automated coverage for default command routing plus explicit `health-check` and `verify-network` alias parsing.
 - Verified the slice with `npm test` and `npm run build`.
+- Selected issue #26: Rename Network Commands And Remove verify-config as the next unblocked feature.
+- Split reachability into a dedicated `health-check` module, repointed `verify-network` to the existing DAO and protocol-constant verification flow, and removed `verify-config` from the public CLI surface.
+- Added automated coverage for the renamed command parsing, help output, and stable command routing.
+- Verified the slice with `npm test` and `npm run build`.
