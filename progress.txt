@@ -65,3 +65,11 @@
 - Updated command aggregation to reuse the shared status policy and extended batch cluster summaries to count inconclusive checks explicitly.
 - Added automated coverage for aggregate status priority, exit-code policy, and inconclusive-aware batch summaries.
 - Verified the slice with `npm test` and `npm run build`.
+2026-04-23 Iteration 3
+- Reviewed the current repository state, progress log, and all open GitHub issues.
+- Selected issue #29: Fix Single-Operator Verification With Dual ETH/SSV Fees as the next unblocked feature.
+- Created branch `ralph/issue-29-dual-operator-fees`.
+- Updated `verify-operator` to read the correct subgraph operator fields, derive user-facing `active` from `removed`, and compare both ETH and SSV fee surfaces against the asset-aware Views adapter.
+- Marked missing directly comparable subgraph operator fields as `inconclusive` instead of misreporting them as failures.
+- Added automated coverage for passing, failing, and inconclusive operator verification scenarios.
+- Verified the slice with `npx vitest run test/verify-operator.test.ts`, `npm test`, and `npm run build`.

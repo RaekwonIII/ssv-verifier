@@ -33,8 +33,9 @@ const singleOperatorQuery = `query ($id: ID!) {
   operator(id: $id) {
     id
     fee
+    feeSSV
     validatorCount
-    active
+    removed
   }
 }`;
 
@@ -108,9 +109,10 @@ export interface SubgraphDaoValuesRecord {
 
 export interface SubgraphOperatorDetailsRecord {
   id: string;
-  fee: string;
-  validatorCount: string;
-  active: boolean;
+  fee: string | null;
+  feeSSV: string | null;
+  validatorCount: string | null;
+  removed: boolean | null;
 }
 
 export interface SubgraphClusterAccountingResult {
