@@ -1,7 +1,7 @@
 import { Interface } from "ethers";
 import { describe, expect, it } from "vitest";
 
-import { renderVerifyOperatorSummary, verifyOperatorState } from "../src/commands/verify-operator.js";
+import { renderVerifyOperatorJson, renderVerifyOperatorSummary, verifyOperatorState } from "../src/commands/verify-operator.js";
 import { loadRuntimeConfig } from "../src/config/env.js";
 import { parseCliArgs } from "../src/index.js";
 
@@ -19,11 +19,11 @@ const viewsInterface = new Interface([
 
 describe("parseCliArgs verify-operator", () => {
   it("parses the verify-operator command", () => {
-    expect(parseCliArgs(["verify-operator", "--network", "hoodi", "--operator", "17"])).toEqual({
+    expect(parseCliArgs(["verify-operator", "--network", "hoodi", "--operator", "17", "--output", "json"])).toEqual({
       command: "verify-operator",
       network: "hoodi",
       operatorId: "17",
-      output: "text",
+      output: "json",
     });
   });
 });
@@ -79,6 +79,16 @@ describe("verifyOperatorState", () => {
       expect.objectContaining({ name: "active", status: "pass", subgraphValue: "true", viewsValue: "true" }),
     ]);
     expect(renderVerifyOperatorSummary(result)).toContain("verify-operator PASS");
+    expect(JSON.parse(renderVerifyOperatorJson(result))).toMatchObject({
+      network: "hoodi",
+      operatorId: "17",
+      status: "pass",
+      checks: [
+        { name: "fee", status: "pass" },
+        { name: "validatorCount", status: "pass" },
+        { name: "active", status: "pass" },
+      ],
+    });
   });
 
   it("reports a failing operator comparison flow", async () => {

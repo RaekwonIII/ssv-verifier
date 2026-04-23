@@ -104,3 +104,7 @@ export function renderVerifyNetworkSummary(result: VerifyNetworkResult): string 
 
   return lines.join("\n");
 }
+
+export function renderVerifyNetworkJson(result: VerifyNetworkResult): string {
+  return JSON.stringify(result, null, 2);
+}
