@@ -14,6 +14,7 @@ const baseEnv = {
 
 const viewsInterface = new Interface([
   "function getOperatorFee(uint64 operatorId) view returns (uint256 fee)",
+  "function getOperatorFeeSSV(uint64 operatorId) view returns (uint256 fee)",
   "function getOperatorById(uint64 operatorId) view returns (address owner, uint256 fee, uint32 validatorCount, address whitelistedAddress, bool isPrivate, bool active)",
 ]);
 
@@ -31,26 +32,42 @@ describe("parseCliArgs verify-operator", () => {
 describe("verifyOperatorState", () => {
   it("reports a successful operator comparison flow", async () => {
     const config = loadRuntimeConfig("hoodi", baseEnv);
-    let ethCallCount = 0;
     const fetchFn: typeof fetch = async (_input, init) => {
-      const body = JSON.parse(String(init?.body)) as { method?: string; query?: string };
+      const body = JSON.parse(String(init?.body)) as { method?: string; query?: string; params?: Array<{ data?: string }> };
 
       if (body.method === "eth_call") {
-        ethCallCount += 1;
+        const data = body.params?.[0]?.data;
 
-        if (ethCallCount === 1) {
-          const result = viewsInterface.encodeFunctionResult("getOperatorFee", [25n]);
-          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200 });
+        if (!data) {
+          throw new Error("Missing eth_call data payload");
         }
 
-        const result = viewsInterface.encodeFunctionResult("getOperatorById", [
-          "0x00000000000000000000000000000000000000aa",
-          25n,
-          8,
-          "0x00000000000000000000000000000000000000bb",
-          false,
-          true,
-        ]);
+        const transaction = viewsInterface.parseTransaction({ data });
+
+        if (!transaction) {
+          throw new Error("Could not decode eth_call payload");
+        }
+
+        const result = (() => {
+          switch (transaction.name) {
+            case "getOperatorFee":
+              return viewsInterface.encodeFunctionResult("getOperatorFee", [25n]);
+            case "getOperatorFeeSSV":
+              return viewsInterface.encodeFunctionResult("getOperatorFeeSSV", [30n]);
+            case "getOperatorById":
+              return viewsInterface.encodeFunctionResult("getOperatorById", [
+                "0x00000000000000000000000000000000000000aa",
+                25n,
+                8,
+                "0x00000000000000000000000000000000000000bb",
+                false,
+                true,
+              ]);
+            default:
+              throw new Error(`Unexpected views method: ${transaction.name}`);
+          }
+        })();
+
         return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200 });
       }
 
@@ -60,8 +77,9 @@ describe("verifyOperatorState", () => {
             operator: {
               id: "17",
               fee: "25",
+              feeSSV: "30",
               validatorCount: "8",
-              active: true,
+              removed: false,
             },
           },
         }), { status: 200 });
@@ -74,7 +92,8 @@ describe("verifyOperatorState", () => {
 
     expect(result.status).toBe("pass");
     expect(result.checks).toEqual([
-      expect.objectContaining({ name: "fee", status: "pass", subgraphValue: "25", viewsValue: "25" }),
+      expect.objectContaining({ name: "feeETH", status: "pass", subgraphValue: "25", viewsValue: "25" }),
+      expect.objectContaining({ name: "feeSSV", status: "pass", subgraphValue: "30", viewsValue: "30" }),
       expect.objectContaining({ name: "validatorCount", status: "pass", subgraphValue: "8", viewsValue: "8" }),
       expect.objectContaining({ name: "active", status: "pass", subgraphValue: "true", viewsValue: "true" }),
     ]);
@@ -93,26 +112,42 @@ describe("verifyOperatorState", () => {
 
   it("reports a failing operator comparison flow", async () => {
     const config = loadRuntimeConfig("hoodi", baseEnv);
-    let ethCallCount = 0;
     const fetchFn: typeof fetch = async (_input, init) => {
-      const body = JSON.parse(String(init?.body)) as { method?: string; query?: string };
+      const body = JSON.parse(String(init?.body)) as { method?: string; query?: string; params?: Array<{ data?: string }> };
 
       if (body.method === "eth_call") {
-        ethCallCount += 1;
+        const data = body.params?.[0]?.data;
 
-        if (ethCallCount === 1) {
-          const result = viewsInterface.encodeFunctionResult("getOperatorFee", [24n]);
-          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200 });
+        if (!data) {
+          throw new Error("Missing eth_call data payload");
         }
 
-        const result = viewsInterface.encodeFunctionResult("getOperatorById", [
-          "0x00000000000000000000000000000000000000aa",
-          24n,
-          7,
-          "0x00000000000000000000000000000000000000bb",
-          false,
-          false,
-        ]);
+        const transaction = viewsInterface.parseTransaction({ data });
+
+        if (!transaction) {
+          throw new Error("Could not decode eth_call payload");
+        }
+
+        const result = (() => {
+          switch (transaction.name) {
+            case "getOperatorFee":
+              return viewsInterface.encodeFunctionResult("getOperatorFee", [24n]);
+            case "getOperatorFeeSSV":
+              return viewsInterface.encodeFunctionResult("getOperatorFeeSSV", [31n]);
+            case "getOperatorById":
+              return viewsInterface.encodeFunctionResult("getOperatorById", [
+                "0x00000000000000000000000000000000000000aa",
+                24n,
+                7,
+                "0x00000000000000000000000000000000000000bb",
+                false,
+                false,
+              ]);
+            default:
+              throw new Error(`Unexpected views method: ${transaction.name}`);
+          }
+        })();
+
         return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200 });
       }
 
@@ -122,8 +157,9 @@ describe("verifyOperatorState", () => {
             operator: {
               id: "17",
               fee: "25",
+              feeSSV: "30",
               validatorCount: "8",
-              active: true,
+              removed: false,
             },
           },
         }), { status: 200 });
@@ -135,10 +171,15 @@ describe("verifyOperatorState", () => {
     const result = await verifyOperatorState(config, "17", { fetchFn });
 
     expect(result.status).toBe("fail");
-    expect(result.checks.find((check) => check.name === "fee")).toMatchObject({
+    expect(result.checks.find((check) => check.name === "feeETH")).toMatchObject({
       status: "fail",
       subgraphValue: "25",
       viewsValue: "24",
+    });
+    expect(result.checks.find((check) => check.name === "feeSSV")).toMatchObject({
+      status: "fail",
+      subgraphValue: "30",
+      viewsValue: "31",
     });
     expect(result.checks.find((check) => check.name === "validatorCount")).toMatchObject({
       status: "fail",
@@ -150,5 +191,74 @@ describe("verifyOperatorState", () => {
       subgraphValue: "true",
       viewsValue: "false",
     });
+  });
+
+  it("marks missing subgraph operator fields as inconclusive", async () => {
+    const config = loadRuntimeConfig("hoodi", baseEnv);
+    const fetchFn: typeof fetch = async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { method?: string; query?: string; params?: Array<{ data?: string }> };
+
+      if (body.method === "eth_call") {
+        const data = body.params?.[0]?.data;
+
+        if (!data) {
+          throw new Error("Missing eth_call data payload");
+        }
+
+        const transaction = viewsInterface.parseTransaction({ data });
+
+        if (!transaction) {
+          throw new Error("Could not decode eth_call payload");
+        }
+
+        const result = (() => {
+          switch (transaction.name) {
+            case "getOperatorFee":
+              return viewsInterface.encodeFunctionResult("getOperatorFee", [25n]);
+            case "getOperatorFeeSSV":
+              return viewsInterface.encodeFunctionResult("getOperatorFeeSSV", [30n]);
+            case "getOperatorById":
+              return viewsInterface.encodeFunctionResult("getOperatorById", [
+                "0x00000000000000000000000000000000000000aa",
+                25n,
+                8,
+                "0x00000000000000000000000000000000000000bb",
+                false,
+                true,
+              ]);
+            default:
+              throw new Error(`Unexpected views method: ${transaction.name}`);
+          }
+        })();
+
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200 });
+      }
+
+      if (body.query?.includes("operator(id: $id)")) {
+        return new Response(JSON.stringify({
+          data: {
+            operator: {
+              id: "17",
+              fee: null,
+              feeSSV: null,
+              validatorCount: null,
+              removed: null,
+            },
+          },
+        }), { status: 200 });
+      }
+
+      throw new Error(`Unexpected request payload: ${JSON.stringify(body)}`);
+    };
+
+    const result = await verifyOperatorState(config, "17", { fetchFn });
+
+    expect(result.status).toBe("inconclusive");
+    expect(result.checks).toEqual([
+      expect.objectContaining({ name: "feeETH", status: "inconclusive", subgraphValue: "missing", viewsValue: "25" }),
+      expect.objectContaining({ name: "feeSSV", status: "inconclusive", subgraphValue: "missing", viewsValue: "30" }),
+      expect.objectContaining({ name: "validatorCount", status: "inconclusive", subgraphValue: "missing", viewsValue: "8" }),
+      expect.objectContaining({ name: "active", status: "inconclusive", subgraphValue: "missing", viewsValue: "true" }),
+    ]);
   });
 });
