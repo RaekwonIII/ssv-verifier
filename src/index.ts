@@ -2,10 +2,10 @@ import { ZodError } from "zod";
 
 import { loadRuntimeConfig } from "./config/env.js";
 import { renderVerifyClusterJson, renderVerifyClusterSummary, verifyClusterIdentity } from "./commands/verify-cluster.js";
-import { renderVerifyClustersSummary, verifyClusters } from "./commands/verify-clusters.js";
-import { renderHealthCheckSummary, runHealthCheck } from "./commands/health-check.js";
-import { renderVerifyOperatorSummary, verifyOperatorState } from "./commands/verify-operator.js";
-import { renderVerifyNetworkSummary, verifyNetworkConfig } from "./commands/verify-network.js";
+import { renderVerifyClustersJson, renderVerifyClustersSummary, verifyClusters } from "./commands/verify-clusters.js";
+import { renderHealthCheckJson, renderHealthCheckSummary, runHealthCheck } from "./commands/health-check.js";
+import { renderVerifyOperatorJson, renderVerifyOperatorSummary, verifyOperatorState } from "./commands/verify-operator.js";
+import { renderVerifyNetworkJson, renderVerifyNetworkSummary, verifyNetworkConfig } from "./commands/verify-network.js";
 import { isNetworkTarget, supportedNetworks, type NetworkTarget } from "./config/networks.js";
 import { exitCodeForStatus, summarizeStatuses } from "./status.js";
 
@@ -151,7 +151,7 @@ export function printHelp(): void {
     "  -n, --network   Select which network scope to run",
     "  -c, --cluster   Cluster identifier for verify-cluster",
     "      --operator  Operator identifier for verify-operator",
-    "  -o, --output    Output format for verify-cluster (text or json)",
+    "  -o, --output    Output format for commands that support text or json",
     "  -h, --help      Show this help text",
   ].join("\n");
 
@@ -163,14 +163,14 @@ async function main(): Promise<void> {
     const args = parseCliArgs(process.argv.slice(2));
     if (args.command === "health-check") {
       const results = await runHealthCheck(loadRuntimeConfig(args.network));
-      console.log(renderHealthCheckSummary(results));
+      console.log(args.output === "json" ? renderHealthCheckJson(args.network, results) : renderHealthCheckSummary(results));
       process.exitCode = exitCodeForStatus(summarizeStatuses(results.map((result) => result.status)));
       return;
     }
 
     if (args.command === "verify-network") {
       const result = await verifyNetworkConfig(loadRuntimeConfig(args.network));
-      console.log(renderVerifyNetworkSummary(result));
+      console.log(args.output === "json" ? renderVerifyNetworkJson(result) : renderVerifyNetworkSummary(result));
       process.exitCode = exitCodeForStatus(result.status);
       return;
     }
@@ -184,14 +184,14 @@ async function main(): Promise<void> {
 
     if (args.command === "verify-clusters") {
       const result = await verifyClusters(loadRuntimeConfig(args.network));
-      console.log(renderVerifyClustersSummary(result));
+      console.log(args.output === "json" ? renderVerifyClustersJson(result) : renderVerifyClustersSummary(result));
       process.exitCode = exitCodeForStatus(result.status);
       return;
     }
 
     if (args.command === "verify-operator") {
       const result = await verifyOperatorState(loadRuntimeConfig(args.network), args.operatorId ?? "");
-      console.log(renderVerifyOperatorSummary(result));
+      console.log(args.output === "json" ? renderVerifyOperatorJson(result) : renderVerifyOperatorSummary(result));
       process.exitCode = exitCodeForStatus(result.status);
       return;
     }

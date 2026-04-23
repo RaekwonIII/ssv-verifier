@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { renderVerifyClustersSummary, verifyAllClusters, verifyClusters } from "../src/commands/verify-clusters.js";
+import { renderVerifyClustersJson, renderVerifyClustersSummary, verifyAllClusters, verifyClusters } from "../src/commands/verify-clusters.js";
 import { loadRuntimeConfig } from "../src/config/env.js";
 
 const baseEnv = {
@@ -131,6 +131,31 @@ describe("verifyAllClusters", () => {
     expect(renderVerifyClustersSummary(result)).toContain("- mainnet: 0 passed / 0 warned / 0 inconclusive / 1 failed / 1 total");
     expect(renderVerifyClustersSummary(result)).toContain("hoodi/hoodi-cluster: non-passing checks=owner:warn");
     expect(renderVerifyClustersSummary(result)).toContain("mainnet/mainnet-cluster: non-passing checks=owner:fail");
+    expect(JSON.parse(renderVerifyClustersJson(result))).toMatchObject({
+      selectedNetwork: "both",
+      status: "fail",
+      totalClusters: 2,
+      networkResults: [
+        {
+          network: "hoodi",
+          clusterResults: [
+            {
+              clusterId: "hoodi-cluster",
+              status: "warn",
+            },
+          ],
+        },
+        {
+          network: "mainnet",
+          clusterResults: [
+            {
+              clusterId: "mainnet-cluster",
+              status: "fail",
+            },
+          ],
+        },
+      ],
+    });
   });
 
   it("treats inconclusive batch results as non-zero aggregate outcomes", async () => {

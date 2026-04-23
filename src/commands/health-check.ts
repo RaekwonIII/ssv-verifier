@@ -1,4 +1,5 @@
 import type { RuntimeConfig } from "../config/env.js";
+import type { NetworkTarget } from "../config/networks.js";
 import { jsonRpcRequest } from "../clients/json-rpc.js";
 import { fetchSubgraphMeta } from "../clients/subgraph.js";
 import { summarizeStatuses, type CheckStatus } from "../status.js";
@@ -13,6 +14,12 @@ export interface NetworkHealthResult {
   network: keyof RuntimeConfig["networks"];
   status: CheckStatus;
   checks: HealthCheckResult[];
+}
+
+export interface HealthCheckRunResult {
+  selectedNetwork: NetworkTarget;
+  status: CheckStatus;
+  networkResults: NetworkHealthResult[];
 }
 
 export interface HealthCheckDependencies {
@@ -125,4 +132,14 @@ export function renderHealthCheckSummary(results: NetworkHealthResult[]): string
   }
 
   return lines.join("\n");
+}
+
+export function renderHealthCheckJson(selectedNetwork: NetworkTarget, results: NetworkHealthResult[]): string {
+  const payload: HealthCheckRunResult = {
+    selectedNetwork,
+    status: summarizeStatuses(results.map((result) => result.status)),
+    networkResults: results,
+  };
+
+  return JSON.stringify(payload, null, 2);
 }

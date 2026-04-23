@@ -156,4 +156,8 @@ export function renderVerifyClustersSummary(result: VerifyClustersRunResult): st
   return lines.join("\n");
 }
 
+export function renderVerifyClustersJson(result: VerifyClustersRunResult): string {
+  return JSON.stringify(result, null, 2);
+}
+
 export { renderVerifyClusterSummary };

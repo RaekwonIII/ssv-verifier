@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { loadRuntimeConfig } from "../src/config/env.js";
-import { runHealthCheck, renderHealthCheckSummary } from "../src/commands/health-check.js";
+import { renderHealthCheckJson, runHealthCheck, renderHealthCheckSummary } from "../src/commands/health-check.js";
 import { parseCliArgs, printHelp } from "../src/index.js";
 
 const baseEnv = {
@@ -21,10 +21,10 @@ describe("parseCliArgs", () => {
   });
 
   it("parses the health-check command", () => {
-    expect(parseCliArgs(["health-check", "--network", "hoodi"])).toEqual({
+    expect(parseCliArgs(["health-check", "--network", "hoodi", "--output", "json"])).toEqual({
       command: "health-check",
       network: "hoodi",
-      output: "text",
+      output: "json",
     });
   });
 
@@ -106,6 +106,16 @@ describe("runHealthCheck", () => {
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ network: "hoodi", status: "pass" });
     expect(renderHealthCheckSummary(results)).toContain("health-check PASS");
+    expect(JSON.parse(renderHealthCheckJson("hoodi", results))).toMatchObject({
+      selectedNetwork: "hoodi",
+      status: "pass",
+      networkResults: [
+        {
+          network: "hoodi",
+          status: "pass",
+        },
+      ],
+    });
   });
 
   it("reports failures in the summary", async () => {

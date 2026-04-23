@@ -76,3 +76,7 @@
 - Selected issue #27: Add README Operational Guide And docs/commands.md as the next unblocked feature.
 - Rewrote the README around the current public commands and added `docs/commands.md` with deeper command behavior, supported network scopes, and caveats.
 - Verified the docs against the implemented command names and re-ran `npm run build`.
+- Selected issue #28: Add JSON Output To Every Command as the next unblocked feature.
+- Added JSON renderers for `health-check`, `verify-network`, `verify-operator`, and `verify-clusters`, and wired the CLI `--output json` mode through every current public command.
+- Added automated coverage for representative single-command and batch JSON payload shapes.
+- Verified the slice with `npm test` and `npm run build`.
