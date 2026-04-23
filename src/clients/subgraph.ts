@@ -10,6 +10,8 @@ const singleClusterQuery = `query ($id: ID!) {
     index
     active
     balance
+    feeAsset
+    effectiveBalance
   }
 }`;
 
@@ -94,6 +96,8 @@ export interface SubgraphClusterRecord {
   index: string;
   active: boolean;
   balance: string;
+  feeAsset?: string | null;
+  effectiveBalance?: string | null;
 }
 
 export interface SubgraphClusterResult {
