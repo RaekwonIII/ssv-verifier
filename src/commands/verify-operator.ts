@@ -2,7 +2,7 @@ import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
 import { fetchSubgraphOperator } from "../clients/subgraph.js";
 import { getOperatorDetailsFromViews, getOperatorFeeFromViews } from "../clients/views.js";
-import type { CheckStatus } from "./verify-cluster.js";
+import { summarizeStatuses, type CheckStatus } from "../status.js";
 
 export interface OperatorCheckResult {
   name: "fee" | "validatorCount" | "active";
@@ -25,7 +25,7 @@ export interface VerifyOperatorDependencies {
 }
 
 function summarizeStatus(checks: OperatorCheckResult[]): CheckStatus {
-  return checks.every((check) => check.status === "pass") ? "pass" : "fail";
+  return summarizeStatuses(checks.map((check) => check.status));
 }
 
 export async function verifyOperatorState(

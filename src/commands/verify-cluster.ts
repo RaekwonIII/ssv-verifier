@@ -2,6 +2,7 @@ import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
 import { jsonRpcRequest } from "../clients/json-rpc.js";
 import { fetchSubgraphClusterAccounting } from "../clients/subgraph.js";
+import { summarizeStatuses, type CheckStatus } from "../status.js";
 import {
   getClusterBalanceFromViews,
   getClusterBurnRateFromViews,
@@ -12,8 +13,6 @@ import {
 
 const LEGACY_SSV_PRECISION = 10_000_000n;
 
-export type CheckStatus = "pass" | "warn" | "fail";
-
 export interface SubgraphFreshness {
   indexedBlockNumber: number;
   chainHeadBlockNumber: number;
@@ -21,7 +20,7 @@ export interface SubgraphFreshness {
   status: "fresh" | "lagging";
 }
 
-export type CheckClassification = "verified" | "mismatch" | "lag-affected";
+export type CheckClassification = "verified" | "mismatch" | "lag-affected" | "inconclusive";
 
 export interface ClusterIdentityCheckResult {
   name:
@@ -218,15 +217,7 @@ function applyFreshnessClassification(
 }
 
 function summarizeStatus(checks: ClusterIdentityCheckResult[]): CheckStatus {
-  if (checks.some((check) => check.status === "fail")) {
-    return "fail";
-  }
-
-  if (checks.some((check) => check.status === "warn")) {
-    return "warn";
-  }
-
-  return "pass";
+  return summarizeStatuses(checks.map((check) => check.status));
 }
 
 function currentIndex(baseIndex: bigint, fee: bigint, startBlock: bigint, currentBlock: bigint): bigint {

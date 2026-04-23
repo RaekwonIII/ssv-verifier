@@ -7,6 +7,7 @@ import { renderVerifyClustersSummary, verifyClusters } from "./commands/verify-c
 import { renderVerifyOperatorSummary, verifyOperatorState } from "./commands/verify-operator.js";
 import { renderVerifyNetworkSummary, verifyNetworkHealth } from "./commands/verify-network.js";
 import { isNetworkTarget, supportedNetworks, type NetworkTarget } from "./config/networks.js";
+import { exitCodeForStatus, summarizeStatuses } from "./status.js";
 
 interface CliArgs {
   command: "bootstrap" | "verify-network" | "verify-cluster" | "verify-clusters" | "verify-operator" | "verify-config";
@@ -161,35 +162,35 @@ async function main(): Promise<void> {
     if (args.command === "verify-network") {
       const results = await verifyNetworkHealth(loadRuntimeConfig(args.network));
       console.log(renderVerifyNetworkSummary(results));
-      process.exitCode = results.every((result) => result.status === "pass") ? 0 : 1;
+      process.exitCode = exitCodeForStatus(summarizeStatuses(results.map((result) => result.status)));
       return;
     }
 
     if (args.command === "verify-cluster") {
       const result = await verifyClusterIdentity(loadRuntimeConfig(args.network), args.clusterId ?? "");
       console.log(args.output === "json" ? renderVerifyClusterJson(result) : renderVerifyClusterSummary(result));
-      process.exitCode = result.status === "pass" ? 0 : 1;
+      process.exitCode = exitCodeForStatus(result.status);
       return;
     }
 
     if (args.command === "verify-clusters") {
       const result = await verifyClusters(loadRuntimeConfig(args.network));
       console.log(renderVerifyClustersSummary(result));
-      process.exitCode = result.status === "pass" ? 0 : 1;
+      process.exitCode = exitCodeForStatus(result.status);
       return;
     }
 
     if (args.command === "verify-operator") {
       const result = await verifyOperatorState(loadRuntimeConfig(args.network), args.operatorId ?? "");
       console.log(renderVerifyOperatorSummary(result));
-      process.exitCode = result.status === "pass" ? 0 : 1;
+      process.exitCode = exitCodeForStatus(result.status);
       return;
     }
 
     if (args.command === "verify-config") {
       const result = await verifyNetworkConfig(loadRuntimeConfig(args.network));
       console.log(renderVerifyConfigSummary(result));
-      process.exitCode = result.status === "pass" ? 0 : 1;
+      process.exitCode = exitCodeForStatus(result.status);
       return;
     }
 

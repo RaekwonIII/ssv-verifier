@@ -1,8 +1,7 @@
 import type { RuntimeConfig } from "../config/env.js";
 import { jsonRpcRequest } from "../clients/json-rpc.js";
 import { fetchSubgraphMeta } from "../clients/subgraph.js";
-
-export type CheckStatus = "pass" | "fail";
+import { summarizeStatuses, type CheckStatus } from "../status.js";
 
 export interface HealthCheckResult {
   name: "rpc" | "subgraph" | "views";
@@ -105,7 +104,7 @@ export async function verifyNetworkHealth(
 
     results.push({
       network,
-      status: checks.every((check) => check.status === "pass") ? "pass" : "fail",
+      status: summarizeStatuses(checks.map((check) => check.status)),
       checks,
     });
   }
@@ -114,7 +113,7 @@ export async function verifyNetworkHealth(
 }
 
 export function renderVerifyNetworkSummary(results: NetworkHealthResult[]): string {
-  const overallStatus = results.every((result) => result.status === "pass") ? "PASS" : "FAIL";
+  const overallStatus = summarizeStatuses(results.map((result) => result.status)).toUpperCase();
   const lines = [`verify-network ${overallStatus}`];
 
   for (const result of results) {
