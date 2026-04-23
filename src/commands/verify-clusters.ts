@@ -1,7 +1,8 @@
 import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
 import { fetchAllSubgraphClusterIds } from "../clients/subgraph.js";
-import { type CheckStatus, type VerifyClusterResult, renderVerifyClusterSummary, verifyClusterIdentity } from "./verify-cluster.js";
+import { summarizeStatuses, type CheckStatus } from "../status.js";
+import { type VerifyClusterResult, renderVerifyClusterSummary, verifyClusterIdentity } from "./verify-cluster.js";
 
 export interface VerifyClustersResult {
   network: VerifyClusterResult["network"];
@@ -11,6 +12,7 @@ export interface VerifyClustersResult {
   totalChecks: number;
   passedChecks: number;
   warnedChecks: number;
+  inconclusiveChecks: number;
   failedChecks: number;
   clusterResults: VerifyClusterResult[];
 }
@@ -28,20 +30,13 @@ export interface VerifyClustersRunResult {
   totalChecks: number;
   passedChecks: number;
   warnedChecks: number;
+  inconclusiveChecks: number;
   failedChecks: number;
   networkResults: VerifyClustersResult[];
 }
 
 function summarizeStatus(statuses: CheckStatus[]): CheckStatus {
-  if (statuses.includes("fail")) {
-    return "fail";
-  }
-
-  if (statuses.includes("warn")) {
-    return "warn";
-  }
-
-  return "pass";
+  return summarizeStatuses(statuses);
 }
 
 async function verifyAllClustersForNetwork(
@@ -75,6 +70,10 @@ async function verifyAllClustersForNetwork(
     (sum, result) => sum + result.checks.filter((check) => check.status === "warn").length,
     0,
   );
+  const inconclusiveChecks = clusterResults.reduce(
+    (sum, result) => sum + result.checks.filter((check) => check.status === "inconclusive").length,
+    0,
+  );
   const failedChecks = clusterResults.reduce(
     (sum, result) => sum + result.checks.filter((check) => check.status === "fail").length,
     0,
@@ -88,6 +87,7 @@ async function verifyAllClustersForNetwork(
     totalChecks,
     passedChecks,
     warnedChecks,
+    inconclusiveChecks,
     failedChecks,
     clusterResults,
   };
@@ -116,6 +116,7 @@ export async function verifyClusters(
   const totalChecks = networkResults.reduce((sum, result) => sum + result.totalChecks, 0);
   const passedChecks = networkResults.reduce((sum, result) => sum + result.passedChecks, 0);
   const warnedChecks = networkResults.reduce((sum, result) => sum + result.warnedChecks, 0);
+  const inconclusiveChecks = networkResults.reduce((sum, result) => sum + result.inconclusiveChecks, 0);
   const failedChecks = networkResults.reduce((sum, result) => sum + result.failedChecks, 0);
 
   return {
@@ -125,6 +126,7 @@ export async function verifyClusters(
     totalChecks,
     passedChecks,
     warnedChecks,
+    inconclusiveChecks,
     failedChecks,
     networkResults,
   };
@@ -135,12 +137,12 @@ export function renderVerifyClustersSummary(result: VerifyClustersRunResult): st
     `verify-clusters ${result.status.toUpperCase()}`,
     `network selection: ${result.selectedNetwork}`,
     `clusters: ${result.totalClusters}`,
-    `checks: ${result.passedChecks} passed / ${result.warnedChecks} warned / ${result.failedChecks} failed / ${result.totalChecks} total`,
+    `checks: ${result.passedChecks} passed / ${result.warnedChecks} warned / ${result.inconclusiveChecks} inconclusive / ${result.failedChecks} failed / ${result.totalChecks} total`,
   ];
 
   for (const networkResult of result.networkResults) {
     lines.push(
-      `- ${networkResult.network}: ${networkResult.passedChecks} passed / ${networkResult.warnedChecks} warned / ${networkResult.failedChecks} failed / ${networkResult.totalChecks} total (source=${networkResult.subgraphSource})`,
+      `- ${networkResult.network}: ${networkResult.passedChecks} passed / ${networkResult.warnedChecks} warned / ${networkResult.inconclusiveChecks} inconclusive / ${networkResult.failedChecks} failed / ${networkResult.totalChecks} total (source=${networkResult.subgraphSource})`,
     );
 
     for (const clusterResult of networkResult.clusterResults.filter((entry) => entry.status !== "pass")) {

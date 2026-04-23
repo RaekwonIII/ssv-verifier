@@ -1,12 +1,12 @@
 import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
 import { fetchSubgraphDaoValues } from "../clients/subgraph.js";
+import { summarizeStatuses, type CheckStatus } from "../status.js";
 import {
   getLiquidationThresholdFromViews,
   getMinimumLiquidationCollateralFromViews,
   getNetworkFeeFromViews,
 } from "../clients/views.js";
-import type { CheckStatus } from "./verify-cluster.js";
 
 export interface ConfigCheckResult {
   name: "networkFee" | "liquidationThreshold" | "minimumLiquidationCollateral";
@@ -28,7 +28,7 @@ export interface VerifyConfigDependencies {
 }
 
 function summarizeStatus(checks: ConfigCheckResult[]): CheckStatus {
-  return checks.every((check) => check.status === "pass") ? "pass" : "fail";
+  return summarizeStatuses(checks.map((check) => check.status));
 }
 
 export async function verifyNetworkConfig(
