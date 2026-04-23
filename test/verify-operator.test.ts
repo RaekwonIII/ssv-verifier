@@ -103,7 +103,8 @@ describe("verifyOperatorState", () => {
       operatorId: "17",
       status: "pass",
       checks: [
-        { name: "fee", status: "pass" },
+        { name: "feeETH", status: "pass" },
+        { name: "feeSSV", status: "pass" },
         { name: "validatorCount", status: "pass" },
         { name: "active", status: "pass" },
       ],
