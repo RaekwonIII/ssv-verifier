@@ -25,12 +25,16 @@ npm run dev -- health-check --network mainnet
 npm run dev -- health-check --network both
 ```
 
-Use `verify-network` when you want to compare network-wide DAO and liquidation constants between the subgraph and `Views`.
+Use `verify-network` when you want to compare network-wide ETH and SSV constants between the subgraph and the asset-aware `Views` surface.
 
 ```bash
 npm run dev -- verify-network --network hoodi
 npm run dev -- verify-network --network mainnet
+npm run dev -- verify-network --network both
+npm run dev -- verify-network --network hoodi --output json
 ```
+
+The `verify-network` command compares ETH and SSV network constants from the subgraph against the asset-aware `Views` surface and groups the output by asset type for each network.
 
 Use `verify-cluster` when you want a full check for one cluster.
 

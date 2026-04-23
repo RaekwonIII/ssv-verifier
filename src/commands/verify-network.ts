@@ -1,110 +1,216 @@
 import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
 import { fetchSubgraphDaoValues } from "../clients/subgraph.js";
+import { createViewsAdapter, type FeeAsset } from "../clients/views.js";
 import { summarizeStatuses, type CheckStatus } from "../status.js";
-import {
-  getLiquidationThresholdFromViews,
-  getMinimumLiquidationCollateralFromViews,
-  getNetworkFeeFromViews,
-} from "../clients/views.js";
 
-export interface NetworkCheckResult {
-  name: "networkFee" | "liquidationThreshold" | "minimumLiquidationCollateral";
+type VerifyNetworkCheckName =
+  | "networkFeeETH"
+  | "liquidationThresholdETH"
+  | "minimumLiquidationCollateralETH"
+  | "networkFeeSSV"
+  | "liquidationThresholdSSV"
+  | "minimumLiquidationCollateralSSV";
+
+type BaseCheckName = "networkFee" | "liquidationThreshold" | "minimumLiquidationCollateral";
+
+export interface VerifyNetworkCheckResult {
+  name: VerifyNetworkCheckName;
+  asset: FeeAsset;
   status: CheckStatus;
   detail: string;
   subgraphValue: string;
   viewsValue: string;
 }
 
+export interface VerifyNetworkAssetResult {
+  asset: FeeAsset;
+  status: CheckStatus;
+  checks: VerifyNetworkCheckResult[];
+}
+
 export interface VerifyNetworkResult {
   network: SingleNetwork;
   subgraphSource: "primary" | "fallback";
   status: CheckStatus;
-  checks: NetworkCheckResult[];
+  assetResults: VerifyNetworkAssetResult[];
+  checks: VerifyNetworkCheckResult[];
+}
+
+export interface VerifyNetworkRunResult {
+  selectedNetwork: RuntimeConfig["selectedNetwork"];
+  status: CheckStatus;
+  networkResults: VerifyNetworkResult[];
 }
 
 export interface VerifyNetworkDependencies {
   fetchFn?: typeof fetch;
+  fetchDaoValues?: typeof fetchSubgraphDaoValues;
 }
 
-function summarizeStatus(checks: NetworkCheckResult[]): CheckStatus {
-  return summarizeStatuses(checks.map((check) => check.status));
-}
-
-export async function verifyNetworkConfig(
-  config: RuntimeConfig,
-  dependencies: VerifyNetworkDependencies = {},
-): Promise<VerifyNetworkResult> {
-  if (config.activeNetworks.length !== 1) {
-    throw new Error("verify-network requires a single network target, not --network both.");
+function qualifyCheckName(asset: FeeAsset, name: BaseCheckName): VerifyNetworkCheckName {
+  if (name === "networkFee") {
+    return asset === "ETH" ? "networkFeeETH" : "networkFeeSSV";
   }
 
+  if (name === "liquidationThreshold") {
+    return asset === "ETH" ? "liquidationThresholdETH" : "liquidationThresholdSSV";
+  }
+
+  return asset === "ETH" ? "minimumLiquidationCollateralETH" : "minimumLiquidationCollateralSSV";
+}
+
+function createCheck(
+  asset: FeeAsset,
+  name: BaseCheckName,
+  subgraphValue: string,
+  viewsValue: bigint,
+  matchedDetail: string,
+  mismatchedDetail: string,
+): VerifyNetworkCheckResult {
+  const viewsString = viewsValue.toString();
+  const status = BigInt(subgraphValue) === viewsValue ? "pass" : "fail";
+
+  return {
+    name: qualifyCheckName(asset, name),
+    asset,
+    status,
+    detail: status === "pass" ? matchedDetail : mismatchedDetail,
+    subgraphValue,
+    viewsValue: viewsString,
+  };
+}
+
+async function verifyNetworkForAsset(
+  asset: FeeAsset,
+  rpcUrl: string,
+  viewsAddress: string,
+  daoValues: Awaited<ReturnType<typeof fetchSubgraphDaoValues>>["daoValues"],
+  fetchFn: typeof fetch,
+): Promise<VerifyNetworkAssetResult> {
+  const views = createViewsAdapter(rpcUrl, viewsAddress, fetchFn);
+  const [networkFee, liquidationThreshold, minimumLiquidationCollateral] = await Promise.all([
+    views.getNetworkFee(asset),
+    views.getLiquidationThreshold(asset),
+    views.getMinimumLiquidationCollateral(asset),
+  ]);
+  const checks = asset === "ETH"
+    ? [
+        createCheck(asset, "networkFee", daoValues.networkFee, networkFee, "ETH network fee matched Views", "ETH network fee did not match Views"),
+        createCheck(
+          asset,
+          "liquidationThreshold",
+          daoValues.liquidationThreshold,
+          liquidationThreshold,
+          "ETH liquidation threshold matched Views",
+          "ETH liquidation threshold did not match Views",
+        ),
+        createCheck(
+          asset,
+          "minimumLiquidationCollateral",
+          daoValues.minimumLiquidationCollateral,
+          minimumLiquidationCollateral,
+          "ETH minimum liquidation collateral matched Views",
+          "ETH minimum liquidation collateral did not match Views",
+        ),
+      ]
+    : [
+        createCheck(asset, "networkFee", daoValues.networkFeeSSV, networkFee, "SSV network fee matched Views", "SSV network fee did not match Views"),
+        createCheck(
+          asset,
+          "liquidationThreshold",
+          daoValues.liquidationThresholdSSV,
+          liquidationThreshold,
+          "SSV liquidation threshold matched Views",
+          "SSV liquidation threshold did not match Views",
+        ),
+        createCheck(
+          asset,
+          "minimumLiquidationCollateral",
+          daoValues.minimumLiquidationCollateralSSV,
+          minimumLiquidationCollateral,
+          "SSV minimum liquidation collateral matched Views",
+          "SSV minimum liquidation collateral did not match Views",
+        ),
+      ];
+
+  return {
+    asset,
+    status: summarizeStatuses(checks.map((check) => check.status)),
+    checks,
+  };
+}
+
+async function verifySingleNetwork(
+  config: RuntimeConfig,
+  network: SingleNetwork,
+  dependencies: VerifyNetworkDependencies,
+): Promise<VerifyNetworkResult> {
   const fetchFn = dependencies.fetchFn ?? fetch;
-  const network = config.activeNetworks[0]!;
+  const fetchDaoValues = dependencies.fetchDaoValues ?? fetchSubgraphDaoValues;
   const networkConfig = config.networks[network];
-  const subgraphDaoValues = await fetchSubgraphDaoValues(
+  const subgraphDaoValues = await fetchDaoValues(
     networkConfig.subgraphPrimaryUrl,
     networkConfig.subgraphFallbackUrl,
     networkConfig.daoAddress,
     fetchFn,
   );
-  const [viewsNetworkFee, viewsLiquidationThreshold, viewsMinimumCollateral] = await Promise.all([
-    getNetworkFeeFromViews(networkConfig.rpcUrl, networkConfig.viewsAddress, fetchFn),
-    getLiquidationThresholdFromViews(networkConfig.rpcUrl, networkConfig.viewsAddress, fetchFn),
-    getMinimumLiquidationCollateralFromViews(networkConfig.rpcUrl, networkConfig.viewsAddress, fetchFn),
+  const assetResults = await Promise.all([
+    verifyNetworkForAsset("ETH", networkConfig.rpcUrl, networkConfig.viewsAddress, subgraphDaoValues.daoValues, fetchFn),
+    verifyNetworkForAsset("SSV", networkConfig.rpcUrl, networkConfig.viewsAddress, subgraphDaoValues.daoValues, fetchFn),
   ]);
-  const checks: NetworkCheckResult[] = [
-    {
-      name: "networkFee",
-      status: BigInt(subgraphDaoValues.daoValues.networkFee) === viewsNetworkFee ? "pass" : "fail",
-      detail: BigInt(subgraphDaoValues.daoValues.networkFee) === viewsNetworkFee
-        ? "Network fee matched Views"
-        : "Network fee did not match Views",
-      subgraphValue: subgraphDaoValues.daoValues.networkFee,
-      viewsValue: viewsNetworkFee.toString(),
-    },
-    {
-      name: "liquidationThreshold",
-      status: BigInt(subgraphDaoValues.daoValues.liquidationThreshold) === viewsLiquidationThreshold ? "pass" : "fail",
-      detail: BigInt(subgraphDaoValues.daoValues.liquidationThreshold) === viewsLiquidationThreshold
-        ? "Liquidation threshold matched Views"
-        : "Liquidation threshold did not match Views",
-      subgraphValue: subgraphDaoValues.daoValues.liquidationThreshold,
-      viewsValue: viewsLiquidationThreshold.toString(),
-    },
-    {
-      name: "minimumLiquidationCollateral",
-      status: BigInt(subgraphDaoValues.daoValues.minimumLiquidationCollateral) === viewsMinimumCollateral ? "pass" : "fail",
-      detail: BigInt(subgraphDaoValues.daoValues.minimumLiquidationCollateral) === viewsMinimumCollateral
-        ? "Minimum liquidation collateral matched Views"
-        : "Minimum liquidation collateral did not match Views",
-      subgraphValue: subgraphDaoValues.daoValues.minimumLiquidationCollateral,
-      viewsValue: viewsMinimumCollateral.toString(),
-    },
-  ];
 
   return {
     network,
     subgraphSource: subgraphDaoValues.source,
-    status: summarizeStatus(checks),
-    checks,
+    status: summarizeStatuses(assetResults.map((assetResult) => assetResult.status)),
+    assetResults,
+    checks: assetResults.flatMap((assetResult) => assetResult.checks),
   };
 }
 
-export function renderVerifyNetworkSummary(result: VerifyNetworkResult): string {
+export async function verifyNetwork(
+  config: RuntimeConfig,
+  dependencies: VerifyNetworkDependencies = {},
+): Promise<VerifyNetworkRunResult> {
+  const networkResults = await Promise.all(
+    config.activeNetworks.map((network) => verifySingleNetwork(config, network, dependencies)),
+  );
+
+  return {
+    selectedNetwork: config.selectedNetwork,
+    status: summarizeStatuses(networkResults.map((result) => result.status)),
+    networkResults,
+  };
+}
+
+function renderCheckLabel(checkName: VerifyNetworkCheckName): string {
+  return checkName.replace(/(ETH|SSV)$/, "");
+}
+
+export function renderVerifyNetworkSummary(result: VerifyNetworkRunResult): string {
   const lines = [
     `verify-network ${result.status.toUpperCase()}`,
-    `network: ${result.network}`,
-    `subgraph source: ${result.subgraphSource}`,
+    `network selection: ${result.selectedNetwork}`,
   ];
 
-  for (const check of result.checks) {
-    lines.push(`- ${check.name}: ${check.status.toUpperCase()} (subgraph=${check.subgraphValue}; views=${check.viewsValue}; ${check.detail})`);
+  for (const networkResult of result.networkResults) {
+    lines.push(`${networkResult.network}: ${networkResult.status.toUpperCase()} (source=${networkResult.subgraphSource})`);
+
+    for (const assetResult of networkResult.assetResults) {
+      lines.push(`- ${assetResult.asset}: ${assetResult.status.toUpperCase()}`);
+
+      for (const check of assetResult.checks) {
+        lines.push(
+          `- ${renderCheckLabel(check.name)}: ${check.status.toUpperCase()} (subgraph=${check.subgraphValue}; views=${check.viewsValue}; ${check.detail})`,
+        );
+      }
+    }
   }
 
   return lines.join("\n");
 }
 
-export function renderVerifyNetworkJson(result: VerifyNetworkResult): string {
+export function renderVerifyNetworkJson(result: VerifyNetworkRunResult): string {
   return JSON.stringify(result, null, 2);
 }

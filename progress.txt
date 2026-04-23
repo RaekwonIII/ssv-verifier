@@ -79,3 +79,9 @@
 - Added aggregate batch summaries for operator counts and non-passing operator details by network, plus CLI parsing and routing for `verify-operators`.
 - Added automated coverage for single-network and dual-network batch operator verification, mixed-status aggregation, and CLI parsing.
 - Verified the slice with `npx vitest run test/verify-operators.test.ts test/network-selection.test.ts`, `npm test`, and `npm run build`.
+2026-04-23 Iteration 4
+- Reviewed the current repository state, progress log, and all remaining open GitHub issues, then selected issue #31 as the next unblocked feature in dependency order.
+- Created branch `ralph/issue-31-network-constants` in a separate worktree from the pushed `#30` commit to avoid the live `.ralph` state-file edit in the original worktree.
+- Replaced `verify-network` health semantics with dual-surface network-constants verification that compares ETH and SSV DAO values against the asset-aware `Views` adapter for `hoodi`, `mainnet`, and `both`.
+- Added grouped human-readable output by asset type per network, JSON output with explicit asset-qualified check names, and updated the CLI help and README to match the new command behavior.
+- Expanded automated coverage for passing and mixed dual-surface verification results, then verified the slice with `npx vitest run test/network-selection.test.ts test/verify-config.test.ts`, `npm test`, and `npm run build`.

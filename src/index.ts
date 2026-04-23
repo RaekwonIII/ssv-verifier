@@ -6,7 +6,7 @@ import { renderVerifyClustersJson, renderVerifyClustersSummary, verifyClusters }
 import { renderHealthCheckJson, renderHealthCheckSummary, runHealthCheck } from "./commands/health-check.js";
 import { renderVerifyOperatorJson, renderVerifyOperatorSummary, verifyOperatorState } from "./commands/verify-operator.js";
 import { renderVerifyOperatorsJson, renderVerifyOperatorsSummary, verifyOperators } from "./commands/verify-operators.js";
-import { renderVerifyNetworkJson, renderVerifyNetworkSummary, verifyNetworkConfig } from "./commands/verify-network.js";
+import { renderVerifyNetworkJson, renderVerifyNetworkSummary, verifyNetwork } from "./commands/verify-network.js";
 import { isNetworkTarget, supportedNetworks, type NetworkTarget } from "./config/networks.js";
 import { exitCodeForStatus, summarizeStatuses } from "./status.js";
 
@@ -150,7 +150,7 @@ export function printHelp(): void {
     "",
     "Commands:",
     "  health-check     Run RPC, subgraph, and Views health checks",
-    "  verify-network   Verify DAO and network config against Views",
+    "  verify-network   Verify ETH and SSV network constants against Views",
     "  verify-cluster   Verify one cluster identity against Views",
     "  verify-clusters  Verify all clusters on one network",
     "  verify-operator  Verify one operator against Views",
@@ -160,7 +160,7 @@ export function printHelp(): void {
     "  -n, --network   Select which network scope to run",
     "  -c, --cluster   Cluster identifier for verify-cluster",
     "      --operator  Operator identifier for verify-operator",
-    "  -o, --output    Output format for commands that support text or json",
+    "  -o, --output    Output format for supported commands (text or json)",
     "  -h, --help      Show this help text",
   ].join("\n");
 
@@ -178,9 +178,9 @@ async function main(): Promise<void> {
     }
 
     if (args.command === "verify-network") {
-      const result = await verifyNetworkConfig(loadRuntimeConfig(args.network));
+      const result = await verifyNetwork(loadRuntimeConfig(args.network));
       console.log(args.output === "json" ? renderVerifyNetworkJson(result) : renderVerifyNetworkSummary(result));
-      process.exitCode = exitCodeForStatus(result.status);
+      process.exitCode = exitCodeForStatus(summarizeStatuses(result.networkResults.map((networkResult) => networkResult.status)));
       return;
     }
 
