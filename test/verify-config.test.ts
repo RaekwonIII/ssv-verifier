@@ -1,9 +1,8 @@
 import { Interface } from "ethers";
 import { describe, expect, it } from "vitest";
 
-import { renderVerifyNetworkJson, renderVerifyNetworkSummary, verifyNetworkConfig } from "../src/commands/verify-network.js";
+import { renderVerifyNetworkJson, renderVerifyNetworkSummary, verifyNetwork } from "../src/commands/verify-network.js";
 import { loadRuntimeConfig } from "../src/config/env.js";
-import { parseCliArgs } from "../src/index.js";
 
 const baseEnv = {
   MAINNET_RPC_URL: "https://mainnet.example",
@@ -14,124 +13,110 @@ const baseEnv = {
 
 const viewsInterface = new Interface([
   "function getNetworkFee() view returns (uint256 networkFee)",
+  "function getNetworkFeeSSV() view returns (uint256 networkFee)",
   "function getLiquidationThresholdPeriod() view returns (uint64 blocks)",
+  "function getLiquidationThresholdPeriodSSV() view returns (uint64 blocks)",
   "function getMinimumLiquidationCollateral() view returns (uint256 amount)",
+  "function getMinimumLiquidationCollateralSSV() view returns (uint256 amount)",
 ]);
 
-describe("parseCliArgs verify-network", () => {
-  it("parses the verify-network command", () => {
-    expect(parseCliArgs(["verify-network", "--network", "hoodi", "--output", "json"])).toEqual({
-      command: "verify-network",
-      network: "hoodi",
-      output: "json",
-    });
-  });
-});
+function createViewsFetch(valuesByMethod: Record<string, bigint>): typeof fetch {
+  return async (_input, init) => {
+    const body = JSON.parse(String(init?.body)) as { method?: string; params?: Array<{ data?: string }> };
 
-describe("verifyNetworkConfig", () => {
-  it("reports a successful config comparison flow", async () => {
-    const config = loadRuntimeConfig("hoodi", baseEnv);
-    let ethCallCount = 0;
-    const fetchFn: typeof fetch = async (_input, init) => {
-      const body = JSON.parse(String(init?.body)) as { method?: string; query?: string };
-
-      if (body.method === "eth_call") {
-        ethCallCount += 1;
-
-        if (ethCallCount === 1) {
-          const result = viewsInterface.encodeFunctionResult("getNetworkFee", [11n]);
-          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200 });
-        }
-
-        if (ethCallCount === 2) {
-          const result = viewsInterface.encodeFunctionResult("getLiquidationThresholdPeriod", [12n]);
-          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200 });
-        }
-
-        const result = viewsInterface.encodeFunctionResult("getMinimumLiquidationCollateral", [13n]);
-        return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200 });
-      }
-
-      if (body.query?.includes("daovalues(id: $daoId)")) {
-        return new Response(JSON.stringify({
-          data: {
-            daovalues: {
-              networkFee: "11",
-              liquidationThreshold: "12",
-              minimumLiquidationCollateral: "13",
-            },
-          },
-        }), { status: 200 });
-      }
-
+    if (body.method !== "eth_call") {
       throw new Error(`Unexpected request payload: ${JSON.stringify(body)}`);
-    };
+    }
 
-    const result = await verifyNetworkConfig(config, { fetchFn });
+    const data = body.params?.[0]?.data;
+
+    if (!data) {
+      throw new Error("Missing eth_call data");
+    }
+
+    const transaction = viewsInterface.parseTransaction({ data });
+    const methodName = transaction?.name;
+
+    if (!methodName || valuesByMethod[methodName] === undefined) {
+      throw new Error(`Missing mocked value for ${methodName ?? "unknown method"}`);
+    }
+
+    const result = viewsInterface.encodeFunctionResult(methodName, [valuesByMethod[methodName]!]);
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200 });
+  };
+}
+
+describe("verifyNetwork", () => {
+  it("reports a successful dual-surface network comparison", async () => {
+    const config = loadRuntimeConfig("hoodi", baseEnv);
+    const result = await verifyNetwork(config, {
+      fetchDaoValues: async () => ({
+        source: "primary",
+        daoValues: {
+          networkFee: "11",
+          liquidationThreshold: "12",
+          minimumLiquidationCollateral: "13",
+          networkFeeSSV: "21",
+          liquidationThresholdSSV: "22",
+          minimumLiquidationCollateralSSV: "23",
+        },
+      }),
+      fetchFn: createViewsFetch({
+        getNetworkFee: 11n,
+        getLiquidationThresholdPeriod: 12n,
+        getMinimumLiquidationCollateral: 13n,
+        getNetworkFeeSSV: 21n,
+        getLiquidationThresholdPeriodSSV: 22n,
+        getMinimumLiquidationCollateralSSV: 23n,
+      }),
+    });
 
     expect(result.status).toBe("pass");
-    expect(result.checks.every((check) => check.status === "pass")).toBe(true);
+    expect(result.networkResults[0]?.assetResults).toMatchObject([
+      { asset: "ETH", status: "pass" },
+      { asset: "SSV", status: "pass" },
+    ]);
     expect(renderVerifyNetworkSummary(result)).toContain("verify-network PASS");
     expect(JSON.parse(renderVerifyNetworkJson(result))).toMatchObject({
-      network: "hoodi",
+      selectedNetwork: "hoodi",
       status: "pass",
-      checks: [
-        { name: "networkFee", status: "pass" },
-        { name: "liquidationThreshold", status: "pass" },
-        { name: "minimumLiquidationCollateral", status: "pass" },
-      ],
     });
   });
 
-  it("reports a failing config comparison flow", async () => {
+  it("reports a failing dual-surface network comparison", async () => {
     const config = loadRuntimeConfig("hoodi", baseEnv);
-    let ethCallCount = 0;
-    const fetchFn: typeof fetch = async (_input, init) => {
-      const body = JSON.parse(String(init?.body)) as { method?: string; query?: string };
-
-      if (body.method === "eth_call") {
-        ethCallCount += 1;
-
-        if (ethCallCount === 1) {
-          const result = viewsInterface.encodeFunctionResult("getNetworkFee", [10n]);
-          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200 });
-        }
-
-        if (ethCallCount === 2) {
-          const result = viewsInterface.encodeFunctionResult("getLiquidationThresholdPeriod", [12n]);
-          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200 });
-        }
-
-        const result = viewsInterface.encodeFunctionResult("getMinimumLiquidationCollateral", [99n]);
-        return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200 });
-      }
-
-      if (body.query?.includes("daovalues(id: $daoId)")) {
-        return new Response(JSON.stringify({
-          data: {
-            daovalues: {
-              networkFee: "11",
-              liquidationThreshold: "12",
-              minimumLiquidationCollateral: "13",
-            },
-          },
-        }), { status: 200 });
-      }
-
-      throw new Error(`Unexpected request payload: ${JSON.stringify(body)}`);
-    };
-
-    const result = await verifyNetworkConfig(config, { fetchFn });
+    const result = await verifyNetwork(config, {
+      fetchDaoValues: async () => ({
+        source: "primary",
+        daoValues: {
+          networkFee: "11",
+          liquidationThreshold: "12",
+          minimumLiquidationCollateral: "13",
+          networkFeeSSV: "21",
+          liquidationThresholdSSV: "22",
+          minimumLiquidationCollateralSSV: "23",
+        },
+      }),
+      fetchFn: createViewsFetch({
+        getNetworkFee: 10n,
+        getLiquidationThresholdPeriod: 12n,
+        getMinimumLiquidationCollateral: 13n,
+        getNetworkFeeSSV: 21n,
+        getLiquidationThresholdPeriodSSV: 22n,
+        getMinimumLiquidationCollateralSSV: 99n,
+      }),
+    });
 
     expect(result.status).toBe("fail");
-    expect(result.checks.find((check) => check.name === "networkFee")).toMatchObject({
+    const checks = result.networkResults[0]?.checks ?? [];
+    expect(checks.find((check) => check.name === "networkFeeETH")).toMatchObject({
       status: "fail",
       subgraphValue: "11",
       viewsValue: "10",
     });
-    expect(result.checks.find((check) => check.name === "minimumLiquidationCollateral")).toMatchObject({
+    expect(checks.find((check) => check.name === "minimumLiquidationCollateralSSV")).toMatchObject({
       status: "fail",
-      subgraphValue: "13",
+      subgraphValue: "23",
       viewsValue: "99",
     });
   });

@@ -71,6 +71,9 @@ interface NormalizedOperator {
   fee: bigint;
   feeIndex: bigint;
   feeIndexBlockNumber: bigint;
+  feeSSV: bigint;
+  feeIndexSSV: bigint;
+  feeIndexBlockNumberSSV: bigint;
 }
 
 interface NormalizedDaoValues {
@@ -79,6 +82,11 @@ interface NormalizedDaoValues {
   networkFeeIndexBlockNumber: bigint;
   liquidationThreshold: bigint;
   minimumLiquidationCollateral: bigint;
+  networkFeeSSV: bigint;
+  networkFeeIndexSSV: bigint;
+  networkFeeIndexBlockNumberSSV: bigint;
+  liquidationThresholdSSV: bigint;
+  minimumLiquidationCollateralSSV: bigint;
 }
 
 function normalizeClusterValue(cluster: {
@@ -112,12 +120,18 @@ function normalizeOperatorValue(operator: {
   fee: string;
   feeIndex: string;
   feeIndexBlockNumber: string;
+  feeSSV?: string;
+  feeIndexSSV?: string;
+  feeIndexBlockNumberSSV?: string;
 }): NormalizedOperator {
   return {
     id: BigInt(operator.id),
     fee: BigInt(operator.fee),
     feeIndex: BigInt(operator.feeIndex),
     feeIndexBlockNumber: BigInt(operator.feeIndexBlockNumber),
+    feeSSV: BigInt(operator.feeSSV ?? operator.fee),
+    feeIndexSSV: BigInt(operator.feeIndexSSV ?? operator.feeIndex),
+    feeIndexBlockNumberSSV: BigInt(operator.feeIndexBlockNumberSSV ?? operator.feeIndexBlockNumber),
   };
 }
 
@@ -127,6 +141,11 @@ function normalizeDaoValues(daoValues: {
   networkFeeIndexBlockNumber: string;
   liquidationThreshold: string;
   minimumLiquidationCollateral: string;
+  networkFeeSSV?: string;
+  networkFeeIndexSSV?: string;
+  networkFeeIndexBlockNumberSSV?: string;
+  liquidationThresholdSSV?: string;
+  minimumLiquidationCollateralSSV?: string;
 }): NormalizedDaoValues {
   return {
     networkFee: BigInt(daoValues.networkFee),
@@ -134,6 +153,11 @@ function normalizeDaoValues(daoValues: {
     networkFeeIndexBlockNumber: BigInt(daoValues.networkFeeIndexBlockNumber),
     liquidationThreshold: BigInt(daoValues.liquidationThreshold),
     minimumLiquidationCollateral: BigInt(daoValues.minimumLiquidationCollateral),
+    networkFeeSSV: BigInt(daoValues.networkFeeSSV ?? daoValues.networkFee),
+    networkFeeIndexSSV: BigInt(daoValues.networkFeeIndexSSV ?? daoValues.networkFeeIndex),
+    networkFeeIndexBlockNumberSSV: BigInt(daoValues.networkFeeIndexBlockNumberSSV ?? daoValues.networkFeeIndexBlockNumber),
+    liquidationThresholdSSV: BigInt(daoValues.liquidationThresholdSSV ?? daoValues.liquidationThreshold),
+    minimumLiquidationCollateralSSV: BigInt(daoValues.minimumLiquidationCollateralSSV ?? daoValues.minimumLiquidationCollateral),
   };
 }
 
@@ -263,6 +287,50 @@ function precisionForAsset(asset: FeeAsset): bigint {
   return asset === "ETH" ? ETH_PRECISION : LEGACY_SSV_PRECISION;
 }
 
+function clusterScale(cluster: Pick<NormalizedCluster, "feeAsset" | "effectiveBalance" | "validatorCount">): bigint {
+  return cluster.feeAsset === "ETH"
+    ? (cluster.effectiveBalance ?? 0n) / 32n
+    : BigInt(cluster.validatorCount);
+}
+
+function selectOperatorAccounting(
+  asset: FeeAsset,
+  operators: ReadonlyArray<NormalizedOperator>,
+): Array<Pick<NormalizedOperator, "fee" | "feeIndex" | "feeIndexBlockNumber">> {
+  return operators.map((operator) => asset === "ETH"
+    ? {
+        fee: operator.fee,
+        feeIndex: operator.feeIndex,
+        feeIndexBlockNumber: operator.feeIndexBlockNumber,
+      }
+    : {
+        fee: operator.feeSSV,
+        feeIndex: operator.feeIndexSSV,
+        feeIndexBlockNumber: operator.feeIndexBlockNumberSSV,
+      });
+}
+
+function selectDaoAccounting(
+  asset: FeeAsset,
+  daoValues: NormalizedDaoValues,
+): Pick<NormalizedDaoValues, "networkFee" | "networkFeeIndex" | "networkFeeIndexBlockNumber" | "liquidationThreshold" | "minimumLiquidationCollateral"> {
+  return asset === "ETH"
+    ? {
+        networkFee: daoValues.networkFee,
+        networkFeeIndex: daoValues.networkFeeIndex,
+        networkFeeIndexBlockNumber: daoValues.networkFeeIndexBlockNumber,
+        liquidationThreshold: daoValues.liquidationThreshold,
+        minimumLiquidationCollateral: daoValues.minimumLiquidationCollateral,
+      }
+    : {
+        networkFee: daoValues.networkFeeSSV,
+        networkFeeIndex: daoValues.networkFeeIndexSSV,
+        networkFeeIndexBlockNumber: daoValues.networkFeeIndexBlockNumberSSV,
+        liquidationThreshold: daoValues.liquidationThresholdSSV,
+        minimumLiquidationCollateral: daoValues.minimumLiquidationCollateralSSV,
+      };
+}
+
 export function deriveCurrentClusterBalance(
   cluster: Pick<NormalizedCluster, "feeAsset" | "effectiveBalance" | "validatorCount" | "networkFeeIndex" | "index" | "balance">,
   operators: ReadonlyArray<Pick<NormalizedOperator, "fee" | "feeIndex" | "feeIndexBlockNumber">>,
@@ -293,12 +361,12 @@ export function deriveCurrentClusterBalance(
 }
 
 export function deriveClusterBurnRate(
-  validatorCount: number,
+  cluster: Pick<NormalizedCluster, "feeAsset" | "effectiveBalance" | "validatorCount">,
   operators: ReadonlyArray<Pick<NormalizedOperator, "fee">>,
   daoValues: Pick<NormalizedDaoValues, "networkFee">,
 ): bigint {
   const operatorFees = operators.reduce((sum, operator) => sum + operator.fee, 0n);
-  return (operatorFees + daoValues.networkFee) * BigInt(validatorCount);
+  return (operatorFees + daoValues.networkFee) * clusterScale(cluster);
 }
 
 export function deriveLiquidationCollateral(
@@ -441,6 +509,8 @@ export async function verifyClusterIdentity(
   const validationAsset = inferredAsset.asset ?? cluster.feeAsset;
   const baseline = inferredAsset.validations[validationAsset];
   const baselineFailure = `Views rejected the subgraph cluster state on the ${validationAsset} surface: ${baseline.detail}`;
+  const selectedOperators = selectOperatorAccounting(validationAsset, operators);
+  const selectedDaoValues = selectDaoAccounting(validationAsset, daoValues);
 
   const checks = baseline.status === "revert"
     ? [
@@ -506,15 +576,43 @@ export async function verifyClusterIdentity(
                 "ETH effective balance must be present, positive, and divisible by 32",
               );
 
-          return identityChecksPromise.then((identityChecks) => [
-            ...baseChecks,
-            ...identityChecks,
-            effectiveBalanceCheck,
-            createInconclusiveCheck("currentBalance", cluster.balance.toString(), "ETH accounting verification lands in the next dual-surface cluster balance slice"),
-            createInconclusiveCheck("burnRate", "unknown", "ETH accounting verification lands in the next dual-surface cluster balance slice"),
-            createInconclusiveCheck("liquidationCollateral", "unknown", "ETH liquidation verification lands in the follow-up liquidation slice"),
-            createInconclusiveCheck("liquidatable", "unknown", "ETH liquidation verification lands in the follow-up liquidation slice"),
-          ]);
+          const viewsBalancePromise = views.getClusterBalance(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
+          const viewsBurnRatePromise = views.getClusterBurnRate(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
+
+          return Promise.all([
+            identityChecksPromise,
+            viewsBalancePromise,
+            viewsBurnRatePromise,
+          ]).then(([identityChecks, viewsBalance, viewsBurnRate]) => {
+            const derivedBalance = deriveCurrentClusterBalance(cluster, selectedOperators, selectedDaoValues, chainHeadBlock);
+            const derivedBurnRate = deriveClusterBurnRate(cluster, selectedOperators, selectedDaoValues);
+
+            return [
+              ...baseChecks,
+              ...identityChecks,
+              effectiveBalanceCheck,
+              {
+                name: "currentBalance",
+                status: derivedBalance === viewsBalance ? "pass" : "fail",
+                classification: derivedBalance === viewsBalance ? "verified" : "mismatch",
+                subgraphValue: derivedBalance.toString(),
+                viewsValue: viewsBalance.toString(),
+                detail: derivedBalance === viewsBalance
+                  ? `Derived balance matched Views at block ${chainHeadBlock.toString()}`
+                  : `Derived balance did not match Views at block ${chainHeadBlock.toString()}`,
+              } satisfies ClusterIdentityCheckResult,
+              {
+                name: "burnRate",
+                status: derivedBurnRate === viewsBurnRate ? "pass" : "fail",
+                classification: derivedBurnRate === viewsBurnRate ? "verified" : "mismatch",
+                subgraphValue: derivedBurnRate.toString(),
+                viewsValue: viewsBurnRate.toString(),
+                detail: derivedBurnRate === viewsBurnRate ? "Derived burn rate matched Views" : "Derived burn rate did not match Views",
+              } satisfies ClusterIdentityCheckResult,
+              createInconclusiveCheck("liquidationCollateral", "unknown", "ETH liquidation verification lands in the follow-up liquidation slice"),
+              createInconclusiveCheck("liquidatable", "unknown", "ETH liquidation verification lands in the follow-up liquidation slice"),
+            ];
+          });
         }
 
         const viewsBalancePromise = views.getClusterBalance(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
@@ -527,9 +625,9 @@ export async function verifyClusterIdentity(
           viewsBurnRatePromise,
           viewsLiquidatablePromise,
         ]).then(([identityChecks, viewsBalance, viewsBurnRate, viewsLiquidatable]) => {
-          const derivedBalance = deriveCurrentClusterBalance(cluster, operators, daoValues, chainHeadBlock);
-          const derivedBurnRate = deriveClusterBurnRate(cluster.validatorCount, operators, daoValues);
-          const liquidationCollateral = deriveLiquidationCollateral(derivedBurnRate, daoValues);
+          const derivedBalance = deriveCurrentClusterBalance(cluster, selectedOperators, selectedDaoValues, chainHeadBlock);
+          const derivedBurnRate = deriveClusterBurnRate(cluster, selectedOperators, selectedDaoValues);
+          const liquidationCollateral = deriveLiquidationCollateral(derivedBurnRate, selectedDaoValues);
           const expectedLiquidatable = deriveLiquidatableStatus(cluster.active, derivedBalance, liquidationCollateral);
 
           return [

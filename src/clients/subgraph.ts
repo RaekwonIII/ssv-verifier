@@ -21,6 +21,9 @@ const clusterAccountingQuery = `query ($operatorIds: [String!]!, $daoId: ID!) {
     fee
     feeIndex
     feeIndexBlockNumber
+    feeSSV
+    feeIndexSSV
+    feeIndexBlockNumberSSV
   }
   daovalues(id: $daoId) {
     networkFee
@@ -28,6 +31,11 @@ const clusterAccountingQuery = `query ($operatorIds: [String!]!, $daoId: ID!) {
     networkFeeIndexBlockNumber
     liquidationThreshold
     minimumLiquidationCollateral
+    networkFeeSSV
+    networkFeeIndexSSV
+    networkFeeIndexBlockNumberSSV
+    liquidationThresholdSSV
+    minimumLiquidationCollateralSSV
   }
 }`;
 
@@ -110,6 +118,9 @@ export interface SubgraphOperatorRecord {
   fee: string;
   feeIndex: string;
   feeIndexBlockNumber: string;
+  feeSSV?: string;
+  feeIndexSSV?: string;
+  feeIndexBlockNumberSSV?: string;
 }
 
 export interface SubgraphDaoValuesRecord {
