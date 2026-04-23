@@ -5,12 +5,13 @@ import { renderVerifyClusterJson, renderVerifyClusterSummary, verifyClusterIdent
 import { renderVerifyClustersJson, renderVerifyClustersSummary, verifyClusters } from "./commands/verify-clusters.js";
 import { renderHealthCheckJson, renderHealthCheckSummary, runHealthCheck } from "./commands/health-check.js";
 import { renderVerifyOperatorJson, renderVerifyOperatorSummary, verifyOperatorState } from "./commands/verify-operator.js";
+import { renderVerifyOperatorsJson, renderVerifyOperatorsSummary, verifyOperators } from "./commands/verify-operators.js";
 import { renderVerifyNetworkJson, renderVerifyNetworkSummary, verifyNetworkConfig } from "./commands/verify-network.js";
 import { isNetworkTarget, supportedNetworks, type NetworkTarget } from "./config/networks.js";
 import { exitCodeForStatus, summarizeStatuses } from "./status.js";
 
 interface CliArgs {
-  command: "health-check" | "verify-network" | "verify-cluster" | "verify-clusters" | "verify-operator";
+  command: "health-check" | "verify-network" | "verify-cluster" | "verify-clusters" | "verify-operator" | "verify-operators";
   network: NetworkTarget;
   clusterId?: string;
   operatorId?: string;
@@ -29,7 +30,12 @@ export function parseCliArgs(argv: string[]): CliArgs {
 
     if (
       index === 0 &&
-      (arg === "health-check" || arg === "verify-network" || arg === "verify-cluster" || arg === "verify-clusters" || arg === "verify-operator")
+      (arg === "health-check" ||
+        arg === "verify-network" ||
+        arg === "verify-cluster" ||
+        arg === "verify-clusters" ||
+        arg === "verify-operator" ||
+        arg === "verify-operators")
     ) {
       if (arg === "health-check" || arg === "verify-network") {
         command = arg;
@@ -39,6 +45,8 @@ export function parseCliArgs(argv: string[]): CliArgs {
         command = "verify-clusters";
       } else if (arg === "verify-operator") {
         command = "verify-operator";
+      } else if (arg === "verify-operators") {
+        command = "verify-operators";
       }
       continue;
     }
@@ -138,14 +146,15 @@ export function renderBootstrapSummary(args: CliArgs): string {
 
 export function printHelp(): void {
   const usage = [
-    "Usage: ssv-verifier [health-check|verify-network|verify-cluster|verify-clusters|verify-operator] --network <hoodi|mainnet|both> [--cluster <id>] [--output <text|json>]",
+    "Usage: ssv-verifier [health-check|verify-network|verify-cluster|verify-clusters|verify-operator|verify-operators] --network <hoodi|mainnet|both> [--cluster <id>] [--operator <id>] [--output <text|json>]",
     "",
     "Commands:",
-    "  health-check    Run RPC, subgraph, and Views health checks",
-    "  verify-network  Verify DAO and network config against Views",
-    "  verify-cluster  Verify one cluster identity against Views",
-    "  verify-clusters Verify all clusters on one network",
-    "  verify-operator Verify one operator against Views",
+    "  health-check     Run RPC, subgraph, and Views health checks",
+    "  verify-network   Verify DAO and network config against Views",
+    "  verify-cluster   Verify one cluster identity against Views",
+    "  verify-clusters  Verify all clusters on one network",
+    "  verify-operator  Verify one operator against Views",
+    "  verify-operators Verify all operators on one or both networks",
     "",
     "Options:",
     "  -n, --network   Select which network scope to run",
@@ -192,6 +201,13 @@ async function main(): Promise<void> {
     if (args.command === "verify-operator") {
       const result = await verifyOperatorState(loadRuntimeConfig(args.network), args.operatorId ?? "");
       console.log(args.output === "json" ? renderVerifyOperatorJson(result) : renderVerifyOperatorSummary(result));
+      process.exitCode = exitCodeForStatus(result.status);
+      return;
+    }
+
+    if (args.command === "verify-operators") {
+      const result = await verifyOperators(loadRuntimeConfig(args.network));
+      console.log(args.output === "json" ? renderVerifyOperatorsJson(result) : renderVerifyOperatorsSummary(result));
       process.exitCode = exitCodeForStatus(result.status);
       return;
     }
