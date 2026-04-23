@@ -47,6 +47,14 @@ describe("parseCliArgs", () => {
       output: "text",
     });
   });
+
+  it("parses the verify-operators command", () => {
+    expect(parseCliArgs(["verify-operators", "--network", "both"])).toEqual({
+      command: "verify-operators",
+      network: "both",
+      output: "text",
+    });
+  });
 });
 
 describe("loadRuntimeConfig", () => {

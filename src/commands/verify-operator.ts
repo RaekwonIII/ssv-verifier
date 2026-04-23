@@ -5,7 +5,7 @@ import { createViewsAdapter } from "../clients/views.js";
 import { summarizeStatuses, type CheckStatus } from "../status.js";
 
 export interface OperatorCheckResult {
-  name: "feeETH" | "feeSSV" | "validatorCount" | "active";
+  name: "operator" | "feeETH" | "feeSSV" | "validatorCount" | "active";
   status: CheckStatus;
   detail: string;
   subgraphValue: string;

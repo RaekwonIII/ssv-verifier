@@ -73,18 +73,9 @@
 - Marked missing directly comparable subgraph operator fields as `inconclusive` instead of misreporting them as failures.
 - Added automated coverage for passing, failing, and inconclusive operator verification scenarios.
 - Verified the slice with `npx vitest run test/verify-operator.test.ts`, `npm test`, and `npm run build`.
-- Selected issue #24: Promote health-check To Default Reachability Command as the next unblocked feature.
-- Added a public `health-check` command alias, made the no-subcommand CLI route default to the existing reachability flow, and updated the human-readable summary/help text to match.
-- Added automated coverage for default command routing plus explicit `health-check` and `verify-network` alias parsing.
-- Verified the slice with `npm test` and `npm run build`.
-- Selected issue #26: Rename Network Commands And Remove verify-config as the next unblocked feature.
-- Split reachability into a dedicated `health-check` module, repointed `verify-network` to the existing DAO and protocol-constant verification flow, and removed `verify-config` from the public CLI surface.
-- Added automated coverage for the renamed command parsing, help output, and stable command routing.
-- Verified the slice with `npm test` and `npm run build`.
-- Selected issue #27: Add README Operational Guide And docs/commands.md as the next unblocked feature.
-- Rewrote the README around the current public commands and added `docs/commands.md` with deeper command behavior, supported network scopes, and caveats.
-- Verified the docs against the implemented command names and re-ran `npm run build`.
-- Selected issue #28: Add JSON Output To Every Command as the next unblocked feature.
-- Added JSON renderers for `health-check`, `verify-network`, `verify-operator`, and `verify-clusters`, and wired the CLI `--output json` mode through every current public command.
-- Added automated coverage for representative single-command and batch JSON payload shapes.
-- Verified the slice with `npm test` and `npm run build`.
+- Selected issue #30: Add verify-operators Batch Command as the next unblocked feature.
+- Created branch `ralph/issue-30-verify-operators`.
+- Added a public `verify-operators` command that lists all subgraph operators on one or both networks, runs single-operator verification for each item, and continues through per-operator errors as inconclusive batch results.
+- Added aggregate batch summaries for operator counts and non-passing operator details by network, plus CLI parsing and routing for `verify-operators`.
+- Added automated coverage for single-network and dual-network batch operator verification, mixed-status aggregation, and CLI parsing.
+- Verified the slice with `npx vitest run test/verify-operators.test.ts test/network-selection.test.ts`, `npm test`, and `npm run build`.
