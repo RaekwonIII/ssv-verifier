@@ -14,14 +14,29 @@
       "errors": [
         "\u001b[91m\u001b[1mError: \u001b[0mSession not found"
       ]
+    },
+    {
+      "iteration": 2,
+      "startedAt": "2026-04-23T10:53:16.925Z",
+      "endedAt": "2026-04-23T10:53:17.713Z",
+      "durationMs": 749,
+      "agent": "opencode",
+      "model": "",
+      "toolsUsed": {},
+      "filesModified": [],
+      "exitCode": 1,
+      "completionDetected": false,
+      "errors": [
+        "\u001b[91m\u001b[1mError: \u001b[0mSession not found"
+      ]
     }
   ],
-  "totalDurationMs": 698,
+  "totalDurationMs": 1447,
   "struggleIndicators": {
     "repeatedErrors": {
-      "\u001b[91m\u001b[1mError: \u001b[0mSession not found": 1
+      "\u001b[91m\u001b[1mError: \u001b[0mSession not found": 2
     },
-    "noProgressIterations": 1,
-    "shortIterations": 1
+    "noProgressIterations": 2,
+    "shortIterations": 2
   }
 }
