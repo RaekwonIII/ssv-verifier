@@ -113,3 +113,7 @@ export function renderVerifyOperatorSummary(result: VerifyOperatorResult): strin
 
   return lines.join("\n");
 }
+
+export function renderVerifyOperatorJson(result: VerifyOperatorResult): string {
+  return JSON.stringify(result, null, 2);
+}

@@ -1,128 +1,110 @@
 import type { RuntimeConfig } from "../config/env.js";
-import { jsonRpcRequest } from "../clients/json-rpc.js";
-import { fetchSubgraphMeta } from "../clients/subgraph.js";
+import type { SingleNetwork } from "../config/networks.js";
+import { fetchSubgraphDaoValues } from "../clients/subgraph.js";
 import { summarizeStatuses, type CheckStatus } from "../status.js";
+import {
+  getLiquidationThresholdFromViews,
+  getMinimumLiquidationCollateralFromViews,
+  getNetworkFeeFromViews,
+} from "../clients/views.js";
 
-export interface HealthCheckResult {
-  name: "rpc" | "subgraph" | "views";
+export interface NetworkCheckResult {
+  name: "networkFee" | "liquidationThreshold" | "minimumLiquidationCollateral";
   status: CheckStatus;
   detail: string;
+  subgraphValue: string;
+  viewsValue: string;
 }
 
-export interface NetworkHealthResult {
-  network: keyof RuntimeConfig["networks"];
+export interface VerifyNetworkResult {
+  network: SingleNetwork;
+  subgraphSource: "primary" | "fallback";
   status: CheckStatus;
-  checks: HealthCheckResult[];
+  checks: NetworkCheckResult[];
 }
 
 export interface VerifyNetworkDependencies {
   fetchFn?: typeof fetch;
 }
 
-function formatFailureDetail(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function summarizeStatus(checks: NetworkCheckResult[]): CheckStatus {
+  return summarizeStatuses(checks.map((check) => check.status));
 }
 
-async function runRpcCheck(rpcUrl: string, fetchFn: typeof fetch): Promise<HealthCheckResult> {
-  try {
-    const blockHex = await jsonRpcRequest<string>(rpcUrl, "eth_blockNumber", [], fetchFn);
-    const blockNumber = Number.parseInt(blockHex, 16);
-
-    return {
-      name: "rpc",
-      status: "pass",
-      detail: `reachable at block ${blockNumber}`,
-    };
-  } catch (error) {
-    return {
-      name: "rpc",
-      status: "fail",
-      detail: formatFailureDetail(error),
-    };
-  }
-}
-
-async function runSubgraphCheck(
-  primaryUrl: string,
-  fallbackUrl: string | undefined,
-  fetchFn: typeof fetch,
-): Promise<HealthCheckResult> {
-  try {
-    const meta = await fetchSubgraphMeta(primaryUrl, fallbackUrl, fetchFn);
-
-    return {
-      name: "subgraph",
-      status: "pass",
-      detail: `${meta.source} endpoint reachable at indexed block ${meta.indexedBlockNumber}`,
-    };
-  } catch (error) {
-    return {
-      name: "subgraph",
-      status: "fail",
-      detail: formatFailureDetail(error),
-    };
-  }
-}
-
-async function runViewsCheck(rpcUrl: string, viewsAddress: string, fetchFn: typeof fetch): Promise<HealthCheckResult> {
-  try {
-    const code = await jsonRpcRequest<string>(rpcUrl, "eth_getCode", [viewsAddress, "latest"], fetchFn);
-
-    if (code === "0x") {
-      throw new Error(`no contract bytecode at ${viewsAddress}`);
-    }
-
-    return {
-      name: "views",
-      status: "pass",
-      detail: `contract code found at ${viewsAddress}`,
-    };
-  } catch (error) {
-    return {
-      name: "views",
-      status: "fail",
-      detail: formatFailureDetail(error),
-    };
-  }
-}
-
-export async function verifyNetworkHealth(
+export async function verifyNetworkConfig(
   config: RuntimeConfig,
   dependencies: VerifyNetworkDependencies = {},
-): Promise<NetworkHealthResult[]> {
-  const fetchFn = dependencies.fetchFn ?? fetch;
-
-  const results: NetworkHealthResult[] = [];
-
-  for (const network of config.activeNetworks) {
-    const networkConfig = config.networks[network];
-    const checks = [
-      await runRpcCheck(networkConfig.rpcUrl, fetchFn),
-      await runSubgraphCheck(networkConfig.subgraphPrimaryUrl, networkConfig.subgraphFallbackUrl, fetchFn),
-      await runViewsCheck(networkConfig.rpcUrl, networkConfig.viewsAddress, fetchFn),
-    ];
-
-    results.push({
-      network,
-      status: summarizeStatuses(checks.map((check) => check.status)),
-      checks,
-    });
+): Promise<VerifyNetworkResult> {
+  if (config.activeNetworks.length !== 1) {
+    throw new Error("verify-network requires a single network target, not --network both.");
   }
 
-  return results;
+  const fetchFn = dependencies.fetchFn ?? fetch;
+  const network = config.activeNetworks[0]!;
+  const networkConfig = config.networks[network];
+  const subgraphDaoValues = await fetchSubgraphDaoValues(
+    networkConfig.subgraphPrimaryUrl,
+    networkConfig.subgraphFallbackUrl,
+    networkConfig.daoAddress,
+    fetchFn,
+  );
+  const [viewsNetworkFee, viewsLiquidationThreshold, viewsMinimumCollateral] = await Promise.all([
+    getNetworkFeeFromViews(networkConfig.rpcUrl, networkConfig.viewsAddress, fetchFn),
+    getLiquidationThresholdFromViews(networkConfig.rpcUrl, networkConfig.viewsAddress, fetchFn),
+    getMinimumLiquidationCollateralFromViews(networkConfig.rpcUrl, networkConfig.viewsAddress, fetchFn),
+  ]);
+  const checks: NetworkCheckResult[] = [
+    {
+      name: "networkFee",
+      status: BigInt(subgraphDaoValues.daoValues.networkFee) === viewsNetworkFee ? "pass" : "fail",
+      detail: BigInt(subgraphDaoValues.daoValues.networkFee) === viewsNetworkFee
+        ? "Network fee matched Views"
+        : "Network fee did not match Views",
+      subgraphValue: subgraphDaoValues.daoValues.networkFee,
+      viewsValue: viewsNetworkFee.toString(),
+    },
+    {
+      name: "liquidationThreshold",
+      status: BigInt(subgraphDaoValues.daoValues.liquidationThreshold) === viewsLiquidationThreshold ? "pass" : "fail",
+      detail: BigInt(subgraphDaoValues.daoValues.liquidationThreshold) === viewsLiquidationThreshold
+        ? "Liquidation threshold matched Views"
+        : "Liquidation threshold did not match Views",
+      subgraphValue: subgraphDaoValues.daoValues.liquidationThreshold,
+      viewsValue: viewsLiquidationThreshold.toString(),
+    },
+    {
+      name: "minimumLiquidationCollateral",
+      status: BigInt(subgraphDaoValues.daoValues.minimumLiquidationCollateral) === viewsMinimumCollateral ? "pass" : "fail",
+      detail: BigInt(subgraphDaoValues.daoValues.minimumLiquidationCollateral) === viewsMinimumCollateral
+        ? "Minimum liquidation collateral matched Views"
+        : "Minimum liquidation collateral did not match Views",
+      subgraphValue: subgraphDaoValues.daoValues.minimumLiquidationCollateral,
+      viewsValue: viewsMinimumCollateral.toString(),
+    },
+  ];
+
+  return {
+    network,
+    subgraphSource: subgraphDaoValues.source,
+    status: summarizeStatus(checks),
+    checks,
+  };
 }
 
-export function renderVerifyNetworkSummary(results: NetworkHealthResult[]): string {
-  const overallStatus = summarizeStatuses(results.map((result) => result.status)).toUpperCase();
-  const lines = [`verify-network ${overallStatus}`];
+export function renderVerifyNetworkSummary(result: VerifyNetworkResult): string {
+  const lines = [
+    `verify-network ${result.status.toUpperCase()}`,
+    `network: ${result.network}`,
+    `subgraph source: ${result.subgraphSource}`,
+  ];
 
-  for (const result of results) {
-    lines.push(`${result.network}: ${result.status.toUpperCase()}`);
-
-    for (const check of result.checks) {
-      lines.push(`- ${check.name}: ${check.status.toUpperCase()} (${check.detail})`);
-    }
+  for (const check of result.checks) {
+    lines.push(`- ${check.name}: ${check.status.toUpperCase()} (subgraph=${check.subgraphValue}; views=${check.viewsValue}; ${check.detail})`);
   }
 
   return lines.join("\n");
+}
+
+export function renderVerifyNetworkJson(result: VerifyNetworkResult): string {
+  return JSON.stringify(result, null, 2);
 }
