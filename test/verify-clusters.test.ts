@@ -158,6 +158,57 @@ describe("verifyAllClusters", () => {
     });
   });
 
+  it("continues through unverifiable clusters as inconclusive", async () => {
+    const config = loadRuntimeConfig("both", baseEnv);
+    const result = await verifyClusters(config, {
+      fetchClusterIds: async (primaryUrl) => ({
+        clusterIds: primaryUrl.includes("hoodi") ? ["hoodi-cluster"] : ["mainnet-cluster"],
+        source: "fallback",
+      }),
+      verifyCluster: async (runtimeConfig, clusterId) => {
+        if (clusterId === "mainnet-cluster") {
+          throw new Error("subgraph timeout");
+        }
+
+        return {
+          network: runtimeConfig.activeNetworks[0]!,
+          clusterId,
+          subgraphSource: "fallback",
+          freshness: {
+            indexedBlockNumber: 20,
+            chainHeadBlockNumber: 20,
+            lagBlocks: 0,
+            status: "fresh",
+          },
+          status: "pass",
+          checks: [
+            {
+              name: "owner",
+              status: "pass",
+              classification: "verified",
+              detail: "matched",
+              subgraphValue: "0x1",
+              viewsValue: "0x1",
+            },
+          ],
+        };
+      },
+    });
+
+    expect(result).toMatchObject({
+      selectedNetwork: "both",
+      status: "inconclusive",
+      totalClusters: 2,
+      totalChecks: 2,
+      passedChecks: 1,
+      warnedChecks: 0,
+      inconclusiveChecks: 1,
+      failedChecks: 0,
+    });
+    expect(renderVerifyClustersSummary(result)).toContain("mainnet/mainnet-cluster: non-passing checks=currentBalance:inconclusive");
+    expect(renderVerifyClustersJson(result)).toContain('"inconclusiveChecks": 1');
+  });
+
   it("treats inconclusive batch results as non-zero aggregate outcomes", async () => {
     const config = loadRuntimeConfig("hoodi", baseEnv);
     const result = await verifyAllClusters(config, {

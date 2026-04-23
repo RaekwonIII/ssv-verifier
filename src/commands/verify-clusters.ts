@@ -4,6 +4,10 @@ import { fetchAllSubgraphClusterIds } from "../clients/subgraph.js";
 import { summarizeStatuses, type CheckStatus } from "../status.js";
 import { type VerifyClusterResult, renderVerifyClusterSummary, verifyClusterIdentity } from "./verify-cluster.js";
 
+export interface VerifyClusterBatchResult extends VerifyClusterResult {
+  errorDetail?: string;
+}
+
 export interface VerifyClustersResult {
   network: VerifyClusterResult["network"];
   status: CheckStatus;
@@ -14,7 +18,7 @@ export interface VerifyClustersResult {
   warnedChecks: number;
   inconclusiveChecks: number;
   failedChecks: number;
-  clusterResults: VerifyClusterResult[];
+  clusterResults: VerifyClusterBatchResult[];
 }
 
 export interface VerifyClustersDependencies {
@@ -59,7 +63,34 @@ async function verifyAllClustersForNetwork(
     activeNetworks: [network],
   } satisfies RuntimeConfig;
   const clusterResults = await Promise.all(
-    clusterListing.clusterIds.map((clusterId) => verifyCluster(singleNetworkConfig, clusterId, { fetchFn })),
+    clusterListing.clusterIds.map(async (clusterId) => {
+      try {
+        return await verifyCluster(singleNetworkConfig, clusterId, { fetchFn });
+      } catch (error) {
+        return {
+          network,
+          clusterId,
+          subgraphSource: clusterListing.source,
+          freshness: {
+            indexedBlockNumber: 0,
+            chainHeadBlockNumber: 0,
+            lagBlocks: 0,
+            status: "fresh",
+          },
+          status: "inconclusive",
+          checks: [
+            {
+              name: "currentBalance",
+              status: "inconclusive",
+              classification: "inconclusive",
+              detail: error instanceof Error ? error.message : String(error),
+              subgraphValue: "unavailable",
+            },
+          ],
+          errorDetail: error instanceof Error ? error.message : String(error),
+        } satisfies VerifyClusterBatchResult;
+      }
+    }),
   );
   const totalChecks = clusterResults.reduce((sum, result) => sum + result.checks.length, 0);
   const passedChecks = clusterResults.reduce(
