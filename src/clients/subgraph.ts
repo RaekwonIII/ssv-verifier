@@ -42,8 +42,11 @@ const singleOperatorQuery = `query ($id: ID!) {
 const daoValuesQuery = `query ($daoId: ID!) {
   daovalues(id: $daoId) {
     networkFee
+    networkFeeSSV
     liquidationThreshold
+    liquidationThresholdSSV
     minimumLiquidationCollateral
+    minimumLiquidationCollateralSSV
   }
 }`;
 
@@ -111,6 +114,11 @@ export interface SubgraphDaoValuesRecord {
   networkFeeIndexBlockNumber: string;
   liquidationThreshold: string;
   minimumLiquidationCollateral: string;
+  networkFeeSSV: string;
+  networkFeeIndexSSV: string;
+  networkFeeIndexBlockNumberSSV: string;
+  liquidationThresholdSSV: string;
+  minimumLiquidationCollateralSSV: string;
 }
 
 export interface SubgraphOperatorDetailsRecord {
@@ -145,7 +153,15 @@ export interface SubgraphOperatorDetailsResult {
 }
 
 export interface SubgraphDaoValuesResult {
-  daoValues: Pick<SubgraphDaoValuesRecord, "networkFee" | "liquidationThreshold" | "minimumLiquidationCollateral">;
+  daoValues: Pick<
+    SubgraphDaoValuesRecord,
+    | "networkFee"
+    | "liquidationThreshold"
+    | "minimumLiquidationCollateral"
+    | "networkFeeSSV"
+    | "liquidationThresholdSSV"
+    | "minimumLiquidationCollateralSSV"
+  >;
   source: "primary" | "fallback";
 }
 
