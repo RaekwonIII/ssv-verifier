@@ -100,3 +100,8 @@
 - Corrected `verify-cluster` so `liquidationCollateral` now compares subgraph-derived collateral against independently derived Views-side collateral inputs, while `liquidatable` remains the subgraph-side decision compared against the on-chain ETH or SSV liquidatable result.
 - Extended the liquidation flow across both ETH and SSV asset paths by reading the matching Views liquidation constants and keeping the check semantics aligned with their names.
 - Expanded automated coverage for ETH liquidation collateral mismatches alongside the existing SSV liquidation regression paths, then verified the slice with `npx vitest run test/verify-cluster.test.ts test/verify-cluster-fixtures.test.ts`, `npm test`, and `npm run build`.
+- Selected issue #35: Add Inconclusive-Aware Batch Summaries For Clusters as the final open implementation slice under the PRD.
+- Created branch `ralph/issue-35-cluster-batch-inconclusive` from the verified `#34` slice.
+- Updated `verify-clusters` to continue through per-cluster verification errors by wrapping them as inconclusive batch results instead of aborting the whole run.
+- Added JSON rendering for cluster batch runs so both text and machine-readable output include explicit inconclusive totals and per-cluster results.
+- Expanded automated coverage for mixed batch results that include thrown per-cluster errors, then verified the slice with `npx vitest run test/verify-clusters.test.ts`, `npm test`, and `npm run build`.
