@@ -12,17 +12,25 @@ const baseEnv = {
 };
 
 describe("parseCliArgs", () => {
-  it("accepts both as a valid network target", () => {
-    expect(parseCliArgs(["--network", "both"])).toEqual({ command: "bootstrap", network: "both", output: "text" });
+  it("defaults to health-check when no command is provided", () => {
+    expect(parseCliArgs(["--network", "both"])).toEqual({ command: "health-check", network: "both", output: "text" });
   });
 
   it("rejects unsupported network values", () => {
     expect(() => parseCliArgs(["--network", "local"])).toThrow(/Invalid --network value/);
   });
 
-  it("parses the verify-network command", () => {
+  it("parses the health-check command", () => {
+    expect(parseCliArgs(["health-check", "--network", "hoodi"])).toEqual({
+      command: "health-check",
+      network: "hoodi",
+      output: "text",
+    });
+  });
+
+  it("keeps verify-network as an alias to health-check", () => {
     expect(parseCliArgs(["verify-network", "--network", "hoodi"])).toEqual({
-      command: "verify-network",
+      command: "health-check",
       network: "hoodi",
       output: "text",
     });
@@ -73,7 +81,7 @@ describe("verifyNetworkHealth", () => {
 
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ network: "hoodi", status: "pass" });
-    expect(renderVerifyNetworkSummary(results)).toContain("verify-network PASS");
+    expect(renderVerifyNetworkSummary(results)).toContain("health-check PASS");
   });
 
   it("reports failures in the summary", async () => {
@@ -95,7 +103,7 @@ describe("verifyNetworkHealth", () => {
     const results = await verifyNetworkHealth(config, { fetchFn });
 
     expect(results[0]?.status).toBe("fail");
-    expect(renderVerifyNetworkSummary(results)).toContain("verify-network FAIL");
+    expect(renderVerifyNetworkSummary(results)).toContain("health-check FAIL");
     expect(renderVerifyNetworkSummary(results)).toContain("subgraph: FAIL");
     expect(renderVerifyNetworkSummary(results)).toContain("views: FAIL");
   });

@@ -114,7 +114,7 @@ export async function verifyNetworkHealth(
 
 export function renderVerifyNetworkSummary(results: NetworkHealthResult[]): string {
   const overallStatus = summarizeStatuses(results.map((result) => result.status)).toUpperCase();
-  const lines = [`verify-network ${overallStatus}`];
+  const lines = [`health-check ${overallStatus}`];
 
   for (const result of results) {
     lines.push(`${result.network}: ${result.status.toUpperCase()}`);

@@ -65,3 +65,7 @@
 - Updated command aggregation to reuse the shared status policy and extended batch cluster summaries to count inconclusive checks explicitly.
 - Added automated coverage for aggregate status priority, exit-code policy, and inconclusive-aware batch summaries.
 - Verified the slice with `npm test` and `npm run build`.
+- Selected issue #24: Promote health-check To Default Reachability Command as the next unblocked feature.
+- Added a public `health-check` command alias, made the no-subcommand CLI route default to the existing reachability flow, and updated the human-readable summary/help text to match.
+- Added automated coverage for default command routing plus explicit `health-check` and `verify-network` alias parsing.
+- Verified the slice with `npm test` and `npm run build`.
