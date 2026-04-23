@@ -1,7 +1,7 @@
 import { Interface } from "ethers";
 import { describe, expect, it } from "vitest";
 
-import { renderVerifyConfigSummary, verifyNetworkConfig } from "../src/commands/verify-config.js";
+import { renderVerifyNetworkSummary, verifyNetworkConfig } from "../src/commands/verify-network.js";
 import { loadRuntimeConfig } from "../src/config/env.js";
 import { parseCliArgs } from "../src/index.js";
 
@@ -18,10 +18,10 @@ const viewsInterface = new Interface([
   "function getMinimumLiquidationCollateral() view returns (uint256 amount)",
 ]);
 
-describe("parseCliArgs verify-config", () => {
-  it("parses the verify-config command", () => {
-    expect(parseCliArgs(["verify-config", "--network", "hoodi"])).toEqual({
-      command: "verify-config",
+describe("parseCliArgs verify-network", () => {
+  it("parses the verify-network command", () => {
+    expect(parseCliArgs(["verify-network", "--network", "hoodi"])).toEqual({
+      command: "verify-network",
       network: "hoodi",
       output: "text",
     });
@@ -71,7 +71,7 @@ describe("verifyNetworkConfig", () => {
 
     expect(result.status).toBe("pass");
     expect(result.checks.every((check) => check.status === "pass")).toBe(true);
-    expect(renderVerifyConfigSummary(result)).toContain("verify-config PASS");
+    expect(renderVerifyNetworkSummary(result)).toContain("verify-network PASS");
   });
 
   it("reports a failing config comparison flow", async () => {

@@ -2,15 +2,15 @@ import { ZodError } from "zod";
 
 import { loadRuntimeConfig } from "./config/env.js";
 import { renderVerifyClusterJson, renderVerifyClusterSummary, verifyClusterIdentity } from "./commands/verify-cluster.js";
-import { renderVerifyConfigSummary, verifyNetworkConfig } from "./commands/verify-config.js";
 import { renderVerifyClustersSummary, verifyClusters } from "./commands/verify-clusters.js";
+import { renderHealthCheckSummary, runHealthCheck } from "./commands/health-check.js";
 import { renderVerifyOperatorSummary, verifyOperatorState } from "./commands/verify-operator.js";
-import { renderVerifyNetworkSummary, verifyNetworkHealth } from "./commands/verify-network.js";
+import { renderVerifyNetworkSummary, verifyNetworkConfig } from "./commands/verify-network.js";
 import { isNetworkTarget, supportedNetworks, type NetworkTarget } from "./config/networks.js";
 import { exitCodeForStatus, summarizeStatuses } from "./status.js";
 
 interface CliArgs {
-  command: "health-check" | "verify-network" | "verify-cluster" | "verify-clusters" | "verify-operator" | "verify-config";
+  command: "health-check" | "verify-network" | "verify-cluster" | "verify-clusters" | "verify-operator";
   network: NetworkTarget;
   clusterId?: string;
   operatorId?: string;
@@ -29,18 +29,16 @@ export function parseCliArgs(argv: string[]): CliArgs {
 
     if (
       index === 0 &&
-      (arg === "health-check" || arg === "verify-network" || arg === "verify-cluster" || arg === "verify-clusters" || arg === "verify-operator" || arg === "verify-config")
+      (arg === "health-check" || arg === "verify-network" || arg === "verify-cluster" || arg === "verify-clusters" || arg === "verify-operator")
     ) {
       if (arg === "health-check" || arg === "verify-network") {
-        command = "health-check";
+        command = arg;
       } else if (arg === "verify-cluster") {
         command = "verify-cluster";
       } else if (arg === "verify-clusters") {
         command = "verify-clusters";
       } else if (arg === "verify-operator") {
         command = "verify-operator";
-      } else if (arg === "verify-config") {
-        command = "verify-config";
       }
       continue;
     }
@@ -140,15 +138,14 @@ export function renderBootstrapSummary(args: CliArgs): string {
 
 export function printHelp(): void {
   const usage = [
-    "Usage: ssv-verifier [health-check|verify-network|verify-cluster|verify-clusters] --network <hoodi|mainnet|both> [--cluster <id>] [--output <text|json>]",
+    "Usage: ssv-verifier [health-check|verify-network|verify-cluster|verify-clusters|verify-operator] --network <hoodi|mainnet|both> [--cluster <id>] [--output <text|json>]",
     "",
     "Commands:",
     "  health-check    Run RPC, subgraph, and Views health checks",
-    "  verify-network  Alias for health-check (temporary)",
+    "  verify-network  Verify DAO and network config against Views",
     "  verify-cluster  Verify one cluster identity against Views",
     "  verify-clusters Verify all clusters on one network",
     "  verify-operator Verify one operator against Views",
-    "  verify-config   Verify DAO and network config against Views",
     "",
     "Options:",
     "  -n, --network   Select which network scope to run",
@@ -165,9 +162,16 @@ async function main(): Promise<void> {
   try {
     const args = parseCliArgs(process.argv.slice(2));
     if (args.command === "health-check") {
-      const results = await verifyNetworkHealth(loadRuntimeConfig(args.network));
-      console.log(renderVerifyNetworkSummary(results));
+      const results = await runHealthCheck(loadRuntimeConfig(args.network));
+      console.log(renderHealthCheckSummary(results));
       process.exitCode = exitCodeForStatus(summarizeStatuses(results.map((result) => result.status)));
+      return;
+    }
+
+    if (args.command === "verify-network") {
+      const result = await verifyNetworkConfig(loadRuntimeConfig(args.network));
+      console.log(renderVerifyNetworkSummary(result));
+      process.exitCode = exitCodeForStatus(result.status);
       return;
     }
 
@@ -188,13 +192,6 @@ async function main(): Promise<void> {
     if (args.command === "verify-operator") {
       const result = await verifyOperatorState(loadRuntimeConfig(args.network), args.operatorId ?? "");
       console.log(renderVerifyOperatorSummary(result));
-      process.exitCode = exitCodeForStatus(result.status);
-      return;
-    }
-
-    if (args.command === "verify-config") {
-      const result = await verifyNetworkConfig(loadRuntimeConfig(args.network));
-      console.log(renderVerifyConfigSummary(result));
       process.exitCode = exitCodeForStatus(result.status);
       return;
     }
