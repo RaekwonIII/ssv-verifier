@@ -95,3 +95,8 @@
 - Extended cluster accounting fetches and normalization to carry both ETH and SSV operator and DAO fee-index surfaces, then selected the correct surface from the verified cluster asset type.
 - Updated `verify-cluster` to derive and compare current balance plus burn rate against the matching ETH or SSV `Views` methods, while keeping ETH liquidation checks deferred to the follow-up liquidation issue.
 - Expanded automated coverage for ETH passing and failing balance-or-burn-rate scenarios alongside the existing SSV regression paths, then verified the slice with `npx vitest run test/verify-cluster.test.ts test/verify-cluster-fixtures.test.ts`, `npm test`, and `npm run build`.
+- Selected issue #34: Fix liquidationCollateral And liquidatable Cluster Checks as the next unblocked feature after closing #33.
+- Created branch `ralph/issue-34-liquidation-collateral-checks` from the verified `#33` slice.
+- Corrected `verify-cluster` so `liquidationCollateral` now compares subgraph-derived collateral against independently derived Views-side collateral inputs, while `liquidatable` remains the subgraph-side decision compared against the on-chain ETH or SSV liquidatable result.
+- Extended the liquidation flow across both ETH and SSV asset paths by reading the matching Views liquidation constants and keeping the check semantics aligned with their names.
+- Expanded automated coverage for ETH liquidation collateral mismatches alongside the existing SSV liquidation regression paths, then verified the slice with `npx vitest run test/verify-cluster.test.ts test/verify-cluster-fixtures.test.ts`, `npm test`, and `npm run build`.
