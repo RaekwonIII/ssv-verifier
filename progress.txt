@@ -85,3 +85,8 @@
 - Replaced `verify-network` health semantics with dual-surface network-constants verification that compares ETH and SSV DAO values against the asset-aware `Views` adapter for `hoodi`, `mainnet`, and `both`.
 - Added grouped human-readable output by asset type per network, JSON output with explicit asset-qualified check names, and updated the CLI help and README to match the new command behavior.
 - Expanded automated coverage for passing and mixed dual-surface verification results, then verified the slice with `npx vitest run test/network-selection.test.ts test/verify-config.test.ts`, `npm test`, and `npm run build`.
+- Selected issue #32: Verify Cluster Asset Type And ETH Effective Balance as the next unblocked feature after closing #31.
+- Created branch `ralph/issue-32-cluster-asset-type` from the verified `#31` slice.
+- Extended `verify-cluster` to read subgraph `feeAsset` and `effectiveBalance`, infer the accepted on-chain asset type by probing both ETH and SSV `Views` surfaces, and fail hard on asset-type mismatches before downstream accounting checks run.
+- Added an explicit ETH `effectiveBalance` prerequisite check and marked deeper ETH accounting checks inconclusive until the follow-up dual-surface balance slice lands, while preserving the existing SSV verification path.
+- Expanded cluster regression coverage for asset-type mismatch handling, ETH-only effective-balance behavior, and the updated dual-surface call ordering, then verified the slice with `npx vitest run test/verify-cluster.test.ts test/verify-cluster-fixtures.test.ts`, `npm test`, and `npm run build`.
