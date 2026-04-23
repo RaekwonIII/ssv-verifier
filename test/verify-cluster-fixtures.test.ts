@@ -132,6 +132,20 @@ function createFixtureFetch(fixture: ClusterFixture): typeof fetch {
         );
       }
 
+      if (ethCallCount === 10) {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeUint256(BigInt(fixture.daoValues.liquidationThreshold)) }),
+          { status: 200 },
+        );
+      }
+
+      if (ethCallCount === 11) {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeUint256(BigInt(fixture.daoValues.minimumLiquidationCollateral)) }),
+          { status: 200 },
+        );
+      }
+
       return new Response(
         JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: 3, message: "execution reverted: IncorrectClusterState" } }),
         { status: 200 },

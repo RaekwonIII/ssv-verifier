@@ -578,14 +578,33 @@ export async function verifyClusterIdentity(
 
           const viewsBalancePromise = views.getClusterBalance(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
           const viewsBurnRatePromise = views.getClusterBurnRate(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
+          const viewsLiquidatablePromise = views.getClusterLiquidatable(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
+          const viewsLiquidationThresholdPromise = views.getLiquidationThreshold(validationAsset);
+          const viewsMinimumCollateralPromise = views.getMinimumLiquidationCollateral(validationAsset);
 
           return Promise.all([
             identityChecksPromise,
             viewsBalancePromise,
             viewsBurnRatePromise,
-          ]).then(([identityChecks, viewsBalance, viewsBurnRate]) => {
+            viewsLiquidatablePromise,
+            viewsLiquidationThresholdPromise,
+            viewsMinimumCollateralPromise,
+          ]).then(([
+            identityChecks,
+            viewsBalance,
+            viewsBurnRate,
+            viewsLiquidatable,
+            viewsLiquidationThreshold,
+            viewsMinimumCollateral,
+          ]) => {
             const derivedBalance = deriveCurrentClusterBalance(cluster, selectedOperators, selectedDaoValues, chainHeadBlock);
             const derivedBurnRate = deriveClusterBurnRate(cluster, selectedOperators, selectedDaoValues);
+            const subgraphLiquidationCollateral = deriveLiquidationCollateral(derivedBurnRate, selectedDaoValues);
+            const viewsLiquidationCollateral = deriveLiquidationCollateral(viewsBurnRate, {
+              liquidationThreshold: viewsLiquidationThreshold,
+              minimumLiquidationCollateral: viewsMinimumCollateral,
+            });
+            const expectedLiquidatable = deriveLiquidatableStatus(cluster.active, derivedBalance, subgraphLiquidationCollateral);
 
             return [
               ...baseChecks,
@@ -609,8 +628,26 @@ export async function verifyClusterIdentity(
                 viewsValue: viewsBurnRate.toString(),
                 detail: derivedBurnRate === viewsBurnRate ? "Derived burn rate matched Views" : "Derived burn rate did not match Views",
               } satisfies ClusterIdentityCheckResult,
-              createInconclusiveCheck("liquidationCollateral", "unknown", "ETH liquidation verification lands in the follow-up liquidation slice"),
-              createInconclusiveCheck("liquidatable", "unknown", "ETH liquidation verification lands in the follow-up liquidation slice"),
+              {
+                name: "liquidationCollateral",
+                status: subgraphLiquidationCollateral === viewsLiquidationCollateral ? "pass" : "fail",
+                classification: subgraphLiquidationCollateral === viewsLiquidationCollateral ? "verified" : "mismatch",
+                subgraphValue: subgraphLiquidationCollateral.toString(),
+                viewsValue: viewsLiquidationCollateral.toString(),
+                detail: subgraphLiquidationCollateral === viewsLiquidationCollateral
+                  ? "Derived liquidation collateral matched Views-side collateral inputs"
+                  : "Derived liquidation collateral did not match Views-side collateral inputs",
+              } satisfies ClusterIdentityCheckResult,
+              {
+                name: "liquidatable",
+                status: expectedLiquidatable === viewsLiquidatable ? "pass" : "fail",
+                classification: expectedLiquidatable === viewsLiquidatable ? "verified" : "mismatch",
+                subgraphValue: String(expectedLiquidatable),
+                viewsValue: String(viewsLiquidatable),
+                detail: expectedLiquidatable === viewsLiquidatable
+                  ? `Derived liquidatable status matched Views at block ${chainHeadBlock.toString()} (balance=${derivedBalance.toString()}, collateral=${subgraphLiquidationCollateral.toString()})`
+                  : `Derived liquidatable status did not match Views at block ${chainHeadBlock.toString()} (balance=${derivedBalance.toString()}, collateral=${subgraphLiquidationCollateral.toString()})`,
+              } satisfies ClusterIdentityCheckResult,
             ];
           });
         }
@@ -618,17 +655,32 @@ export async function verifyClusterIdentity(
         const viewsBalancePromise = views.getClusterBalance(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
         const viewsBurnRatePromise = views.getClusterBurnRate(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
         const viewsLiquidatablePromise = views.getClusterLiquidatable(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
+        const viewsLiquidationThresholdPromise = views.getLiquidationThreshold(validationAsset);
+        const viewsMinimumCollateralPromise = views.getMinimumLiquidationCollateral(validationAsset);
 
         return Promise.all([
           identityChecksPromise,
           viewsBalancePromise,
           viewsBurnRatePromise,
           viewsLiquidatablePromise,
-        ]).then(([identityChecks, viewsBalance, viewsBurnRate, viewsLiquidatable]) => {
+          viewsLiquidationThresholdPromise,
+          viewsMinimumCollateralPromise,
+        ]).then(([
+          identityChecks,
+          viewsBalance,
+          viewsBurnRate,
+          viewsLiquidatable,
+          viewsLiquidationThreshold,
+          viewsMinimumCollateral,
+        ]) => {
           const derivedBalance = deriveCurrentClusterBalance(cluster, selectedOperators, selectedDaoValues, chainHeadBlock);
           const derivedBurnRate = deriveClusterBurnRate(cluster, selectedOperators, selectedDaoValues);
-          const liquidationCollateral = deriveLiquidationCollateral(derivedBurnRate, selectedDaoValues);
-          const expectedLiquidatable = deriveLiquidatableStatus(cluster.active, derivedBalance, liquidationCollateral);
+          const subgraphLiquidationCollateral = deriveLiquidationCollateral(derivedBurnRate, selectedDaoValues);
+          const viewsLiquidationCollateral = deriveLiquidationCollateral(viewsBurnRate, {
+            liquidationThreshold: viewsLiquidationThreshold,
+            minimumLiquidationCollateral: viewsMinimumCollateral,
+          });
+          const expectedLiquidatable = deriveLiquidatableStatus(cluster.active, derivedBalance, subgraphLiquidationCollateral);
 
           return [
             ...baseChecks,
@@ -653,13 +705,13 @@ export async function verifyClusterIdentity(
             } satisfies ClusterIdentityCheckResult,
             {
               name: "liquidationCollateral",
-              status: expectedLiquidatable === viewsLiquidatable ? "pass" : "fail",
-              classification: expectedLiquidatable === viewsLiquidatable ? "verified" : "mismatch",
-              subgraphValue: liquidationCollateral.toString(),
-              viewsValue: String(viewsLiquidatable),
-              detail: expectedLiquidatable === viewsLiquidatable
-                ? `Derived collateral implied the same liquidatable status as Views at block ${chainHeadBlock.toString()} (balance=${derivedBalance.toString()})`
-                : `Derived collateral implied a different liquidatable status than Views at block ${chainHeadBlock.toString()} (balance=${derivedBalance.toString()})`,
+              status: subgraphLiquidationCollateral === viewsLiquidationCollateral ? "pass" : "fail",
+              classification: subgraphLiquidationCollateral === viewsLiquidationCollateral ? "verified" : "mismatch",
+              subgraphValue: subgraphLiquidationCollateral.toString(),
+              viewsValue: viewsLiquidationCollateral.toString(),
+              detail: subgraphLiquidationCollateral === viewsLiquidationCollateral
+                ? "Derived liquidation collateral matched Views-side collateral inputs"
+                : "Derived liquidation collateral did not match Views-side collateral inputs",
             } satisfies ClusterIdentityCheckResult,
             {
               name: "liquidatable",
@@ -668,8 +720,8 @@ export async function verifyClusterIdentity(
               subgraphValue: String(expectedLiquidatable),
               viewsValue: String(viewsLiquidatable),
               detail: expectedLiquidatable === viewsLiquidatable
-                ? `Derived liquidatable status matched Views at block ${chainHeadBlock.toString()} (balance=${viewsBalance.toString()}, collateral=${liquidationCollateral.toString()})`
-                : `Derived liquidatable status did not match Views at block ${chainHeadBlock.toString()} (balance=${viewsBalance.toString()}, collateral=${liquidationCollateral.toString()})`,
+                ? `Derived liquidatable status matched Views at block ${chainHeadBlock.toString()} (balance=${viewsBalance.toString()}, collateral=${subgraphLiquidationCollateral.toString()})`
+                : `Derived liquidatable status did not match Views at block ${chainHeadBlock.toString()} (balance=${viewsBalance.toString()}, collateral=${subgraphLiquidationCollateral.toString()})`,
             } satisfies ClusterIdentityCheckResult,
           ];
         });
