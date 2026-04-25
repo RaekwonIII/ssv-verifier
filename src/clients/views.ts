@@ -77,14 +77,14 @@ export interface ViewsClusterAssetTypeResult {
 export interface ViewsAdapter {
   validateClusterState(asset: FeeAsset, owner: string, operatorIds: bigint[], cluster: ViewsClusterState): Promise<ViewsValidationResult>;
   getClusterAssetType(owner: string, operatorIds: bigint[], blockTag: string): Promise<ViewsClusterAssetTypeResult>;
-  getClusterBalance(asset: FeeAsset, owner: string, operatorIds: bigint[], cluster: ViewsClusterState): Promise<bigint>;
-  getClusterBurnRate(asset: FeeAsset, owner: string, operatorIds: bigint[], cluster: ViewsClusterState): Promise<bigint>;
-  getClusterLiquidatable(asset: FeeAsset, owner: string, operatorIds: bigint[], cluster: ViewsClusterState): Promise<boolean>;
+  getClusterBalance(asset: FeeAsset, owner: string, operatorIds: bigint[], cluster: ViewsClusterState, blockTag?: string): Promise<bigint>;
+  getClusterBurnRate(asset: FeeAsset, owner: string, operatorIds: bigint[], cluster: ViewsClusterState, blockTag?: string): Promise<bigint>;
+  getClusterLiquidatable(asset: FeeAsset, owner: string, operatorIds: bigint[], cluster: ViewsClusterState, blockTag?: string): Promise<boolean>;
   getOperatorFee(asset: FeeAsset, operatorId: bigint): Promise<bigint>;
   getOperatorDetails(operatorId: bigint): Promise<ViewsOperatorDetails>;
-  getNetworkFee(asset: FeeAsset): Promise<bigint>;
-  getLiquidationThreshold(asset: FeeAsset): Promise<bigint>;
-  getMinimumLiquidationCollateral(asset: FeeAsset): Promise<bigint>;
+  getNetworkFee(asset: FeeAsset, blockTag?: string): Promise<bigint>;
+  getLiquidationThreshold(asset: FeeAsset, blockTag?: string): Promise<bigint>;
+  getMinimumLiquidationCollateral(asset: FeeAsset, blockTag?: string): Promise<bigint>;
 }
 
 async function callClusterMethod(
@@ -96,11 +96,12 @@ async function callClusterMethod(
   operatorIds: bigint[],
   cluster: ViewsClusterState,
   fetchFn: typeof fetch,
+  blockTag = "latest",
 ): Promise<string> {
   const assetAwareMethodName = assetMethodName(asset, methodName) as ClusterMethodName;
   const data = viewsInterface.encodeFunctionData(assetAwareMethodName, [owner, operatorIds, cluster]);
 
-  return ethCall(rpcUrl, viewsAddress, data, fetchFn);
+  return ethCall(rpcUrl, viewsAddress, data, fetchFn, blockTag);
 }
 
 async function callNullaryMethod(
@@ -109,11 +110,12 @@ async function callNullaryMethod(
   asset: FeeAsset,
   methodName: NullaryMethod,
   fetchFn: typeof fetch,
+  blockTag = "latest",
 ): Promise<string> {
   const assetAwareMethodName = assetMethodName(asset, methodName) as NullaryMethodName;
   const data = viewsInterface.encodeFunctionData(assetAwareMethodName, []);
 
-  return ethCall(rpcUrl, viewsAddress, data, fetchFn);
+  return ethCall(rpcUrl, viewsAddress, data, fetchFn, blockTag);
 }
 
 export function createViewsAdapter(
@@ -181,25 +183,25 @@ export function createViewsAdapter(
       }
     },
 
-    async getClusterBalance(asset, owner, operatorIds, cluster) {
+    async getClusterBalance(asset, owner, operatorIds, cluster, blockTag = "latest") {
       const methodName = assetMethodName(asset, "getBalance") as ClusterMethodName;
-      const response = await callClusterMethod(rpcUrl, viewsAddress, asset, "getBalance", owner, operatorIds, cluster, fetchFn);
+      const response = await callClusterMethod(rpcUrl, viewsAddress, asset, "getBalance", owner, operatorIds, cluster, fetchFn, blockTag);
       const [balance] = viewsInterface.decodeFunctionResult(methodName, response);
 
       return balance;
     },
 
-    async getClusterBurnRate(asset, owner, operatorIds, cluster) {
+    async getClusterBurnRate(asset, owner, operatorIds, cluster, blockTag = "latest") {
       const methodName = assetMethodName(asset, "getBurnRate") as ClusterMethodName;
-      const response = await callClusterMethod(rpcUrl, viewsAddress, asset, "getBurnRate", owner, operatorIds, cluster, fetchFn);
+      const response = await callClusterMethod(rpcUrl, viewsAddress, asset, "getBurnRate", owner, operatorIds, cluster, fetchFn, blockTag);
       const [burnRate] = viewsInterface.decodeFunctionResult(methodName, response);
 
       return burnRate;
     },
 
-    async getClusterLiquidatable(asset, owner, operatorIds, cluster) {
+    async getClusterLiquidatable(asset, owner, operatorIds, cluster, blockTag = "latest") {
       const methodName = assetMethodName(asset, "isLiquidatable") as ClusterMethodName;
-      const response = await callClusterMethod(rpcUrl, viewsAddress, asset, "isLiquidatable", owner, operatorIds, cluster, fetchFn);
+      const response = await callClusterMethod(rpcUrl, viewsAddress, asset, "isLiquidatable", owner, operatorIds, cluster, fetchFn, blockTag);
       const [isLiquidatable] = viewsInterface.decodeFunctionResult(methodName, response);
 
       return isLiquidatable;
@@ -226,25 +228,25 @@ export function createViewsAdapter(
       };
     },
 
-    async getNetworkFee(asset) {
+    async getNetworkFee(asset, blockTag = "latest") {
       const methodName = assetMethodName(asset, "getNetworkFee") as NullaryMethodName;
-      const response = await callNullaryMethod(rpcUrl, viewsAddress, asset, "getNetworkFee", fetchFn);
+      const response = await callNullaryMethod(rpcUrl, viewsAddress, asset, "getNetworkFee", fetchFn, blockTag);
       const [networkFee] = viewsInterface.decodeFunctionResult(methodName, response);
 
       return networkFee;
     },
 
-    async getLiquidationThreshold(asset) {
+    async getLiquidationThreshold(asset, blockTag = "latest") {
       const methodName = assetMethodName(asset, "getLiquidationThresholdPeriod") as NullaryMethodName;
-      const response = await callNullaryMethod(rpcUrl, viewsAddress, asset, "getLiquidationThresholdPeriod", fetchFn);
+      const response = await callNullaryMethod(rpcUrl, viewsAddress, asset, "getLiquidationThresholdPeriod", fetchFn, blockTag);
       const [threshold] = viewsInterface.decodeFunctionResult(methodName, response);
 
       return threshold;
     },
 
-    async getMinimumLiquidationCollateral(asset) {
+    async getMinimumLiquidationCollateral(asset, blockTag = "latest") {
       const methodName = assetMethodName(asset, "getMinimumLiquidationCollateral") as NullaryMethodName;
-      const response = await callNullaryMethod(rpcUrl, viewsAddress, asset, "getMinimumLiquidationCollateral", fetchFn);
+      const response = await callNullaryMethod(rpcUrl, viewsAddress, asset, "getMinimumLiquidationCollateral", fetchFn, blockTag);
       const [minimumCollateral] = viewsInterface.decodeFunctionResult(methodName, response);
 
       return minimumCollateral;
