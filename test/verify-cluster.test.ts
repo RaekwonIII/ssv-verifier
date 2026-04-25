@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  deriveClusterBurnRate,
-  deriveCurrentClusterBalance,
-  deriveLiquidatableStatus,
-  deriveLiquidationCollateral,
   renderVerifyClusterJson,
   renderVerifyClusterSummary,
   verifyClusterIdentity,
 } from "../src/commands/verify-cluster.js";
+import {
+  deriveClusterBurnRate,
+  deriveCurrentClusterBalance,
+  deriveLiquidatableStatus,
+  deriveLiquidationCollateral,
+} from "../src/domain/cluster-accounting.js";
 import { loadRuntimeConfig } from "../src/config/env.js";
 import { parseClusterId } from "../src/domain/cluster-id.js";
 import { parseCliArgs } from "../src/index.js";
@@ -21,6 +23,139 @@ const baseEnv = {
 };
 
 const clusterId = "0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-7-523";
+
+function encodeRpcWord(value: bigint | boolean): string {
+  const normalized = typeof value === "boolean" ? (value ? 1n : 0n) : value;
+  return `0x${normalized.toString(16).padStart(64, "0")}`;
+}
+
+function createEmptyClusterFetchFn(options: {
+  asset: "ETH" | "SSV";
+  clusterBalance?: string;
+  active?: boolean;
+  effectiveBalance?: string | null;
+  viewsBalance?: bigint;
+  viewsBurnRate?: bigint;
+  viewsLiquidatable?: boolean;
+  viewsLiquidationThreshold?: bigint;
+  viewsMinimumCollateral?: bigint;
+  operators?: Array<Record<string, string | null>>;
+}): typeof fetch {
+  const {
+    asset,
+    clusterBalance = "30",
+    active = true,
+    effectiveBalance = null,
+    viewsBalance = BigInt(clusterBalance),
+    viewsBurnRate = 0n,
+    viewsLiquidatable = false,
+    viewsLiquidationThreshold = 1n,
+    viewsMinimumCollateral = 1n,
+    operators = [],
+  } = options;
+
+  let ethCallCount = 0;
+
+  return async (_input, init) => {
+    const body = JSON.parse(String(init?.body)) as { method?: string; query?: string };
+
+    if (body.method === "eth_blockNumber") {
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x14" }), { status: 200 });
+    }
+
+    if (body.method === "eth_call") {
+      ethCallCount += 1;
+
+      if (ethCallCount === 1) {
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeRpcWord(asset === "ETH") }), { status: 200 });
+      }
+
+      if (ethCallCount === 2) {
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeRpcWord(0n) }), { status: 200 });
+      }
+
+      if (ethCallCount >= 3 && ethCallCount <= 6) {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: 3, message: "execution reverted: IncorrectClusterState" } }),
+          { status: 200 },
+        );
+      }
+
+      if (ethCallCount === 7) {
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeRpcWord(viewsBalance) }), { status: 200 });
+      }
+
+      if (ethCallCount === 8) {
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeRpcWord(viewsBurnRate) }), { status: 200 });
+      }
+
+      if (ethCallCount === 9) {
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeRpcWord(viewsLiquidatable) }), { status: 200 });
+      }
+
+      if (ethCallCount === 10) {
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeRpcWord(viewsLiquidationThreshold) }), { status: 200 });
+      }
+
+      if (ethCallCount === 11) {
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeRpcWord(viewsMinimumCollateral) }), { status: 200 });
+      }
+
+      throw new Error(`Unexpected eth_call #${ethCallCount}`);
+    }
+
+    if (body.query?.includes("_meta")) {
+      return new Response(JSON.stringify({ data: { _meta: { block: { number: 20 } } } }), { status: 200 });
+    }
+
+    if (body.query?.includes("cluster(id: $id)")) {
+      return new Response(
+        JSON.stringify({
+          data: {
+            cluster: {
+              id: clusterId,
+              owner: { id: "0xe8c927a1fa792eddefe23fda643a62e03f999830" },
+              operatorIds: ["5", "6", "7", "523"],
+              validatorCount: "0",
+              networkFeeIndex: "10",
+              index: "20",
+              active,
+              balance: clusterBalance,
+              feeAsset: asset,
+              effectiveBalance,
+            },
+          },
+        }),
+        { status: 200 },
+      );
+    }
+
+    if (body.query?.includes("daovalues(id: $daoId)")) {
+      return new Response(
+        JSON.stringify({
+          data: {
+            operators,
+            daovalues: {
+              networkFee: "64",
+              networkFeeIndex: "10",
+              networkFeeIndexBlockNumber: "20",
+              liquidationThreshold: viewsLiquidationThreshold.toString(),
+              minimumLiquidationCollateral: viewsMinimumCollateral.toString(),
+              networkFeeSSV: "64",
+              networkFeeIndexSSV: "10",
+              networkFeeIndexBlockNumberSSV: "20",
+              liquidationThresholdSSV: viewsLiquidationThreshold.toString(),
+              minimumLiquidationCollateralSSV: viewsMinimumCollateral.toString(),
+            },
+          },
+        }),
+        { status: 200 },
+      );
+    }
+
+    throw new Error(`Unexpected request payload: ${JSON.stringify(body)}`);
+  };
+}
 
 describe("parseCliArgs verify-cluster", () => {
   it("parses the verify-cluster command", () => {
@@ -107,7 +242,7 @@ describe("verifyClusterIdentity", () => {
       104n,
     );
 
-    expect(balance).toBe(380n);
+    expect(balance.value).toBe(380n);
   });
 
   it("derives liquidation values from subgraph accounting inputs", () => {
@@ -116,16 +251,83 @@ describe("verifyClusterIdentity", () => {
       [{ fee: 3n }, { fee: 5n }],
       { networkFee: 7n },
     );
-    const collateral = deriveLiquidationCollateral(burnRate, {
+    const collateral = deriveLiquidationCollateral(burnRate.value, {
       liquidationThreshold: 10n,
       minimumLiquidationCollateral: 100n,
     });
 
-    expect(burnRate).toBe(30n);
-    expect(collateral).toBe(300n);
-    expect(deriveLiquidatableStatus(true, 299n, collateral)).toBe(true);
-    expect(deriveLiquidatableStatus(true, 300n, collateral)).toBe(false);
-    expect(deriveLiquidatableStatus(false, 0n, collateral)).toBe(false);
+    expect(burnRate.value).toBe(30n);
+    expect(collateral.value).toBe(300n);
+    expect(deriveLiquidatableStatus(true, 299n, collateral.value).value).toBe(true);
+    expect(deriveLiquidatableStatus(true, 300n, collateral.value).value).toBe(false);
+    expect(deriveLiquidatableStatus(false, 0n, collateral.value).value).toBe(false);
+  });
+
+  it("verifies empty SSV clusters without emitting operatorData", async () => {
+    const config = loadRuntimeConfig("hoodi", baseEnv);
+    const result = await verifyClusterIdentity(config, clusterId, {
+      fetchFn: createEmptyClusterFetchFn({ asset: "SSV" }),
+    });
+
+    expect(result.status).toBe("pass");
+    expect(result.checks.find((check) => check.name === "operatorData")).toBeUndefined();
+    expect(result.checks.find((check) => check.name === "currentBalance")).toMatchObject({
+      subgraphValue: "30",
+      viewsValue: "30",
+      status: "pass",
+    });
+    expect(result.checks.find((check) => check.name === "burnRate")).toMatchObject({
+      subgraphValue: "0",
+      viewsValue: "0",
+      status: "pass",
+    });
+    expect(result.checks.find((check) => check.name === "liquidationCollateral")).toMatchObject({
+      subgraphValue: "1",
+      viewsValue: "1",
+      status: "pass",
+    });
+    expect(result.checks.find((check) => check.name === "liquidatable")).toMatchObject({
+      subgraphValue: "false",
+      viewsValue: "false",
+      status: "pass",
+    });
+  });
+
+  it("treats empty-cluster views mismatches as normal failures", async () => {
+    const config = loadRuntimeConfig("hoodi", baseEnv);
+    const result = await verifyClusterIdentity(config, clusterId, {
+      fetchFn: createEmptyClusterFetchFn({ asset: "SSV", viewsBalance: 29n }),
+    });
+
+    expect(result.status).toBe("fail");
+    expect(result.checks.find((check) => check.name === "operatorData")).toBeUndefined();
+    expect(result.checks.find((check) => check.name === "currentBalance")).toMatchObject({
+      subgraphValue: "30",
+      viewsValue: "29",
+      status: "fail",
+      classification: "mismatch",
+    });
+  });
+
+  it("verifies empty ETH clusters without emitting operatorData or effectiveBalance", async () => {
+    const config = loadRuntimeConfig("hoodi", baseEnv);
+    const result = await verifyClusterIdentity(config, clusterId, {
+      fetchFn: createEmptyClusterFetchFn({ asset: "ETH", effectiveBalance: null }),
+    });
+
+    expect(result.status).toBe("pass");
+    expect(result.checks.find((check) => check.name === "operatorData")).toBeUndefined();
+    expect(result.checks.find((check) => check.name === "effectiveBalance")).toBeUndefined();
+    expect(result.checks.find((check) => check.name === "currentBalance")).toMatchObject({
+      subgraphValue: "30",
+      viewsValue: "30",
+      status: "pass",
+    });
+    expect(result.checks.find((check) => check.name === "burnRate")).toMatchObject({
+      subgraphValue: "0",
+      viewsValue: "0",
+      status: "pass",
+    });
   });
 
   it("reports a successful comparison flow", async () => {
