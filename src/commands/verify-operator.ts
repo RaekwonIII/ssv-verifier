@@ -1,11 +1,11 @@
 import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
 import { fetchSubgraphOperator } from "../clients/subgraph.js";
-import { getOperatorDetailsFromViews, getOperatorFeeFromViews } from "../clients/views.js";
-import type { CheckStatus } from "./verify-cluster.js";
+import { createViewsAdapter } from "../clients/views.js";
+import { summarizeStatuses, type CheckStatus } from "../status.js";
 
 export interface OperatorCheckResult {
-  name: "fee" | "validatorCount" | "active";
+  name: "operator" | "feeETH" | "feeSSV" | "validatorCount" | "active";
   status: CheckStatus;
   detail: string;
   subgraphValue: string;
@@ -25,7 +25,34 @@ export interface VerifyOperatorDependencies {
 }
 
 function summarizeStatus(checks: OperatorCheckResult[]): CheckStatus {
-  return checks.every((check) => check.status === "pass") ? "pass" : "fail";
+  return summarizeStatuses(checks.map((check) => check.status));
+}
+
+function createComparableCheck(
+  name: OperatorCheckResult["name"],
+  subgraphValue: string | null,
+  viewsValue: string,
+  label: string,
+): OperatorCheckResult {
+  if (subgraphValue === null) {
+    return {
+      name,
+      status: "inconclusive",
+      detail: `Subgraph did not expose ${label}`,
+      subgraphValue: "missing",
+      viewsValue,
+    };
+  }
+
+  const status: CheckStatus = subgraphValue === viewsValue ? "pass" : "fail";
+
+  return {
+    name,
+    status,
+    detail: status === "pass" ? `${label} matched Views` : `${label} did not match Views`,
+    subgraphValue,
+    viewsValue,
+  };
 }
 
 export async function verifyOperatorState(
@@ -47,36 +74,20 @@ export async function verifyOperatorState(
     fetchFn,
   );
   const viewsOperatorId = BigInt(operatorId);
-  const [viewsFee, viewsDetails] = await Promise.all([
-    getOperatorFeeFromViews(networkConfig.rpcUrl, networkConfig.viewsAddress, viewsOperatorId, fetchFn),
-    getOperatorDetailsFromViews(networkConfig.rpcUrl, networkConfig.viewsAddress, viewsOperatorId, fetchFn),
+  const viewsAdapter = createViewsAdapter(networkConfig.rpcUrl, networkConfig.viewsAddress, fetchFn);
+  const [viewsEthFee, viewsSsvFee, viewsDetails] = await Promise.all([
+    viewsAdapter.getOperatorFee("ETH", viewsOperatorId),
+    viewsAdapter.getOperatorFee("SSV", viewsOperatorId),
+    viewsAdapter.getOperatorDetails(viewsOperatorId),
   ]);
+  const activeSubgraphValue = subgraphOperator.operator.removed === null
+    ? null
+    : String(!subgraphOperator.operator.removed);
   const checks: OperatorCheckResult[] = [
-    {
-      name: "fee",
-      status: BigInt(subgraphOperator.operator.fee) === viewsFee ? "pass" : "fail",
-      detail: BigInt(subgraphOperator.operator.fee) === viewsFee ? "Operator fee matched Views" : "Operator fee did not match Views",
-      subgraphValue: subgraphOperator.operator.fee,
-      viewsValue: viewsFee.toString(),
-    },
-    {
-      name: "validatorCount",
-      status: Number.parseInt(subgraphOperator.operator.validatorCount, 10) === viewsDetails.validatorCount ? "pass" : "fail",
-      detail: Number.parseInt(subgraphOperator.operator.validatorCount, 10) === viewsDetails.validatorCount
-        ? "Operator validator count matched Views"
-        : "Operator validator count did not match Views",
-      subgraphValue: subgraphOperator.operator.validatorCount,
-      viewsValue: String(viewsDetails.validatorCount),
-    },
-    {
-      name: "active",
-      status: subgraphOperator.operator.active === viewsDetails.active ? "pass" : "fail",
-      detail: subgraphOperator.operator.active === viewsDetails.active
-        ? "Operator active flag matched Views"
-        : "Operator active flag did not match Views",
-      subgraphValue: String(subgraphOperator.operator.active),
-      viewsValue: String(viewsDetails.active),
-    },
+    createComparableCheck("feeETH", subgraphOperator.operator.fee, viewsEthFee.toString(), "Operator ETH fee"),
+    createComparableCheck("feeSSV", subgraphOperator.operator.feeSSV, viewsSsvFee.toString(), "Operator SSV fee"),
+    createComparableCheck("validatorCount", subgraphOperator.operator.validatorCount, String(viewsDetails.validatorCount), "Operator validator count"),
+    createComparableCheck("active", activeSubgraphValue, String(viewsDetails.active), "Operator active flag"),
   ];
 
   return {
@@ -101,4 +112,8 @@ export function renderVerifyOperatorSummary(result: VerifyOperatorResult): strin
   }
 
   return lines.join("\n");
+}
+
+export function renderVerifyOperatorJson(result: VerifyOperatorResult): string {
+  return JSON.stringify(result, null, 2);
 }

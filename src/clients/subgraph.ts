@@ -10,6 +10,8 @@ const singleClusterQuery = `query ($id: ID!) {
     index
     active
     balance
+    feeAsset
+    effectiveBalance
   }
 }`;
 
@@ -19,6 +21,9 @@ const clusterAccountingQuery = `query ($operatorIds: [String!]!, $daoId: ID!) {
     fee
     feeIndex
     feeIndexBlockNumber
+    feeSSV
+    feeIndexSSV
+    feeIndexBlockNumberSSV
   }
   daovalues(id: $daoId) {
     networkFee
@@ -26,6 +31,11 @@ const clusterAccountingQuery = `query ($operatorIds: [String!]!, $daoId: ID!) {
     networkFeeIndexBlockNumber
     liquidationThreshold
     minimumLiquidationCollateral
+    networkFeeSSV
+    networkFeeIndexSSV
+    networkFeeIndexBlockNumberSSV
+    liquidationThresholdSSV
+    minimumLiquidationCollateralSSV
   }
 }`;
 
@@ -33,21 +43,31 @@ const singleOperatorQuery = `query ($id: ID!) {
   operator(id: $id) {
     id
     fee
+    feeSSV
     validatorCount
-    active
+    removed
   }
 }`;
 
 const daoValuesQuery = `query ($daoId: ID!) {
   daovalues(id: $daoId) {
     networkFee
+    networkFeeSSV
     liquidationThreshold
+    liquidationThresholdSSV
     minimumLiquidationCollateral
+    minimumLiquidationCollateralSSV
   }
 }`;
 
 const clusterIdsQuery = `query ($first: Int!, $skip: Int!) {
   clusters(first: $first, skip: $skip, orderBy: id, orderDirection: asc) {
+    id
+  }
+}`;
+
+const operatorIdsQuery = `query ($first: Int!, $skip: Int!) {
+  operators(first: $first, skip: $skip, orderBy: id, orderDirection: asc) {
     id
   }
 }`;
@@ -84,6 +104,8 @@ export interface SubgraphClusterRecord {
   index: string;
   active: boolean;
   balance: string;
+  feeAsset?: string | null;
+  effectiveBalance?: string | null;
 }
 
 export interface SubgraphClusterResult {
@@ -96,6 +118,9 @@ export interface SubgraphOperatorRecord {
   fee: string;
   feeIndex: string;
   feeIndexBlockNumber: string;
+  feeSSV?: string;
+  feeIndexSSV?: string;
+  feeIndexBlockNumberSSV?: string;
 }
 
 export interface SubgraphDaoValuesRecord {
@@ -104,13 +129,19 @@ export interface SubgraphDaoValuesRecord {
   networkFeeIndexBlockNumber: string;
   liquidationThreshold: string;
   minimumLiquidationCollateral: string;
+  networkFeeSSV: string;
+  networkFeeIndexSSV: string;
+  networkFeeIndexBlockNumberSSV: string;
+  liquidationThresholdSSV: string;
+  minimumLiquidationCollateralSSV: string;
 }
 
 export interface SubgraphOperatorDetailsRecord {
   id: string;
-  fee: string;
-  validatorCount: string;
-  active: boolean;
+  fee: string | null;
+  feeSSV: string | null;
+  validatorCount: string | null;
+  removed: boolean | null;
 }
 
 export interface SubgraphClusterAccountingResult {
@@ -126,13 +157,26 @@ export interface SubgraphClusterIdsResult {
   source: "primary" | "fallback";
 }
 
+export interface SubgraphOperatorIdsResult {
+  operatorIds: string[];
+  source: "primary" | "fallback";
+}
+
 export interface SubgraphOperatorDetailsResult {
   operator: SubgraphOperatorDetailsRecord;
   source: "primary" | "fallback";
 }
 
 export interface SubgraphDaoValuesResult {
-  daoValues: Pick<SubgraphDaoValuesRecord, "networkFee" | "liquidationThreshold" | "minimumLiquidationCollateral">;
+  daoValues: Pick<
+    SubgraphDaoValuesRecord,
+    | "networkFee"
+    | "liquidationThreshold"
+    | "minimumLiquidationCollateral"
+    | "networkFeeSSV"
+    | "liquidationThresholdSSV"
+    | "minimumLiquidationCollateralSSV"
+  >;
   source: "primary" | "fallback";
 }
 
@@ -420,5 +464,52 @@ export async function fetchAllSubgraphClusterIds(
     }
 
     return fetchAllSubgraphClusterIdsOnce(fallbackUrl, "fallback", fetchFn);
+  }
+}
+
+async function fetchAllSubgraphOperatorIdsOnce(
+  url: string,
+  source: "primary" | "fallback",
+  fetchFn: typeof fetch,
+): Promise<SubgraphOperatorIdsResult> {
+  const operatorIds: string[] = [];
+  let skip = 0;
+  const first = 1000;
+
+  while (true) {
+    const payload = await postGraphql<{ operators?: Array<{ id: string }> }>(
+      url,
+      operatorIdsQuery,
+      { first, skip },
+      fetchFn,
+    );
+    const page = payload.operators ?? [];
+
+    operatorIds.push(...page.map((operator) => operator.id));
+
+    if (page.length < first) {
+      return {
+        operatorIds,
+        source,
+      };
+    }
+
+    skip += page.length;
+  }
+}
+
+export async function fetchAllSubgraphOperatorIds(
+  primaryUrl: string,
+  fallbackUrl: string | undefined,
+  fetchFn: typeof fetch = fetch,
+): Promise<SubgraphOperatorIdsResult> {
+  try {
+    return await fetchAllSubgraphOperatorIdsOnce(primaryUrl, "primary", fetchFn);
+  } catch (primaryError) {
+    if (!fallbackUrl) {
+      throw primaryError;
+    }
+
+    return fetchAllSubgraphOperatorIdsOnce(fallbackUrl, "fallback", fetchFn);
   }
 }

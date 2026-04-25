@@ -86,7 +86,7 @@ function createFixtureFetch(fixture: ClusterFixture): typeof fetch {
     if (body.method === "eth_call") {
       ethCallCount += 1;
 
-      if (fixture.views.baseline === "revert" && ethCallCount === 1) {
+      if (fixture.views.baseline === "revert" && ethCallCount <= 2) {
         return new Response(
           JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: 3, message: "execution reverted: IncorrectClusterState" } }),
           { status: 200 },
@@ -94,26 +94,54 @@ function createFixtureFetch(fixture: ClusterFixture): typeof fetch {
       }
 
       if (ethCallCount === 1) {
-        return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeBool(false) }), { status: 200 });
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: 3, message: "execution reverted: IncorrectClusterState" } }),
+          { status: 200 },
+        );
       }
 
       if (ethCallCount === 2) {
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeBool(false) }), { status: 200 });
+      }
+
+      if (ethCallCount >= 3 && ethCallCount <= 6) {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: 3, message: "execution reverted: IncorrectClusterState" } }),
+          { status: 200 },
+        );
+      }
+
+      if (ethCallCount === 7) {
         return new Response(
           JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeUint256(BigInt(fixture.views.balance)) }),
           { status: 200 },
         );
       }
 
-      if (ethCallCount === 3) {
+      if (ethCallCount === 8) {
         return new Response(
           JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeUint256(BigInt(fixture.views.burnRate)) }),
           { status: 200 },
         );
       }
 
-      if (ethCallCount === 4) {
+      if (ethCallCount === 9) {
         return new Response(
           JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeBool(fixture.views.liquidatable) }),
+          { status: 200 },
+        );
+      }
+
+      if (ethCallCount === 10) {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeUint256(BigInt(fixture.daoValues.liquidationThreshold)) }),
+          { status: 200 },
+        );
+      }
+
+      if (ethCallCount === 11) {
+        return new Response(
+          JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeUint256(BigInt(fixture.daoValues.minimumLiquidationCollateral)) }),
           { status: 200 },
         );
       }

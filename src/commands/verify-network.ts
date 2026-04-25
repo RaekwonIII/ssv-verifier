@@ -1,129 +1,216 @@
 import type { RuntimeConfig } from "../config/env.js";
-import { jsonRpcRequest } from "../clients/json-rpc.js";
-import { fetchSubgraphMeta } from "../clients/subgraph.js";
+import type { SingleNetwork } from "../config/networks.js";
+import { fetchSubgraphDaoValues } from "../clients/subgraph.js";
+import { createViewsAdapter, type FeeAsset } from "../clients/views.js";
+import { summarizeStatuses, type CheckStatus } from "../status.js";
 
-export type CheckStatus = "pass" | "fail";
+type VerifyNetworkCheckName =
+  | "networkFeeETH"
+  | "liquidationThresholdETH"
+  | "minimumLiquidationCollateralETH"
+  | "networkFeeSSV"
+  | "liquidationThresholdSSV"
+  | "minimumLiquidationCollateralSSV";
 
-export interface HealthCheckResult {
-  name: "rpc" | "subgraph" | "views";
+type BaseCheckName = "networkFee" | "liquidationThreshold" | "minimumLiquidationCollateral";
+
+export interface VerifyNetworkCheckResult {
+  name: VerifyNetworkCheckName;
+  asset: FeeAsset;
   status: CheckStatus;
   detail: string;
+  subgraphValue: string;
+  viewsValue: string;
 }
 
-export interface NetworkHealthResult {
-  network: keyof RuntimeConfig["networks"];
+export interface VerifyNetworkAssetResult {
+  asset: FeeAsset;
   status: CheckStatus;
-  checks: HealthCheckResult[];
+  checks: VerifyNetworkCheckResult[];
+}
+
+export interface VerifyNetworkResult {
+  network: SingleNetwork;
+  subgraphSource: "primary" | "fallback";
+  status: CheckStatus;
+  assetResults: VerifyNetworkAssetResult[];
+  checks: VerifyNetworkCheckResult[];
+}
+
+export interface VerifyNetworkRunResult {
+  selectedNetwork: RuntimeConfig["selectedNetwork"];
+  status: CheckStatus;
+  networkResults: VerifyNetworkResult[];
 }
 
 export interface VerifyNetworkDependencies {
   fetchFn?: typeof fetch;
+  fetchDaoValues?: typeof fetchSubgraphDaoValues;
 }
 
-function formatFailureDetail(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-async function runRpcCheck(rpcUrl: string, fetchFn: typeof fetch): Promise<HealthCheckResult> {
-  try {
-    const blockHex = await jsonRpcRequest<string>(rpcUrl, "eth_blockNumber", [], fetchFn);
-    const blockNumber = Number.parseInt(blockHex, 16);
-
-    return {
-      name: "rpc",
-      status: "pass",
-      detail: `reachable at block ${blockNumber}`,
-    };
-  } catch (error) {
-    return {
-      name: "rpc",
-      status: "fail",
-      detail: formatFailureDetail(error),
-    };
+function qualifyCheckName(asset: FeeAsset, name: BaseCheckName): VerifyNetworkCheckName {
+  if (name === "networkFee") {
+    return asset === "ETH" ? "networkFeeETH" : "networkFeeSSV";
   }
+
+  if (name === "liquidationThreshold") {
+    return asset === "ETH" ? "liquidationThresholdETH" : "liquidationThresholdSSV";
+  }
+
+  return asset === "ETH" ? "minimumLiquidationCollateralETH" : "minimumLiquidationCollateralSSV";
 }
 
-async function runSubgraphCheck(
-  primaryUrl: string,
-  fallbackUrl: string | undefined,
+function createCheck(
+  asset: FeeAsset,
+  name: BaseCheckName,
+  subgraphValue: string,
+  viewsValue: bigint,
+  matchedDetail: string,
+  mismatchedDetail: string,
+): VerifyNetworkCheckResult {
+  const viewsString = viewsValue.toString();
+  const status = BigInt(subgraphValue) === viewsValue ? "pass" : "fail";
+
+  return {
+    name: qualifyCheckName(asset, name),
+    asset,
+    status,
+    detail: status === "pass" ? matchedDetail : mismatchedDetail,
+    subgraphValue,
+    viewsValue: viewsString,
+  };
+}
+
+async function verifyNetworkForAsset(
+  asset: FeeAsset,
+  rpcUrl: string,
+  viewsAddress: string,
+  daoValues: Awaited<ReturnType<typeof fetchSubgraphDaoValues>>["daoValues"],
   fetchFn: typeof fetch,
-): Promise<HealthCheckResult> {
-  try {
-    const meta = await fetchSubgraphMeta(primaryUrl, fallbackUrl, fetchFn);
+): Promise<VerifyNetworkAssetResult> {
+  const views = createViewsAdapter(rpcUrl, viewsAddress, fetchFn);
+  const [networkFee, liquidationThreshold, minimumLiquidationCollateral] = await Promise.all([
+    views.getNetworkFee(asset),
+    views.getLiquidationThreshold(asset),
+    views.getMinimumLiquidationCollateral(asset),
+  ]);
+  const checks = asset === "ETH"
+    ? [
+        createCheck(asset, "networkFee", daoValues.networkFee, networkFee, "ETH network fee matched Views", "ETH network fee did not match Views"),
+        createCheck(
+          asset,
+          "liquidationThreshold",
+          daoValues.liquidationThreshold,
+          liquidationThreshold,
+          "ETH liquidation threshold matched Views",
+          "ETH liquidation threshold did not match Views",
+        ),
+        createCheck(
+          asset,
+          "minimumLiquidationCollateral",
+          daoValues.minimumLiquidationCollateral,
+          minimumLiquidationCollateral,
+          "ETH minimum liquidation collateral matched Views",
+          "ETH minimum liquidation collateral did not match Views",
+        ),
+      ]
+    : [
+        createCheck(asset, "networkFee", daoValues.networkFeeSSV, networkFee, "SSV network fee matched Views", "SSV network fee did not match Views"),
+        createCheck(
+          asset,
+          "liquidationThreshold",
+          daoValues.liquidationThresholdSSV,
+          liquidationThreshold,
+          "SSV liquidation threshold matched Views",
+          "SSV liquidation threshold did not match Views",
+        ),
+        createCheck(
+          asset,
+          "minimumLiquidationCollateral",
+          daoValues.minimumLiquidationCollateralSSV,
+          minimumLiquidationCollateral,
+          "SSV minimum liquidation collateral matched Views",
+          "SSV minimum liquidation collateral did not match Views",
+        ),
+      ];
 
-    return {
-      name: "subgraph",
-      status: "pass",
-      detail: `${meta.source} endpoint reachable at indexed block ${meta.indexedBlockNumber}`,
-    };
-  } catch (error) {
-    return {
-      name: "subgraph",
-      status: "fail",
-      detail: formatFailureDetail(error),
-    };
-  }
+  return {
+    asset,
+    status: summarizeStatuses(checks.map((check) => check.status)),
+    checks,
+  };
 }
 
-async function runViewsCheck(rpcUrl: string, viewsAddress: string, fetchFn: typeof fetch): Promise<HealthCheckResult> {
-  try {
-    const code = await jsonRpcRequest<string>(rpcUrl, "eth_getCode", [viewsAddress, "latest"], fetchFn);
+async function verifySingleNetwork(
+  config: RuntimeConfig,
+  network: SingleNetwork,
+  dependencies: VerifyNetworkDependencies,
+): Promise<VerifyNetworkResult> {
+  const fetchFn = dependencies.fetchFn ?? fetch;
+  const fetchDaoValues = dependencies.fetchDaoValues ?? fetchSubgraphDaoValues;
+  const networkConfig = config.networks[network];
+  const subgraphDaoValues = await fetchDaoValues(
+    networkConfig.subgraphPrimaryUrl,
+    networkConfig.subgraphFallbackUrl,
+    networkConfig.daoAddress,
+    fetchFn,
+  );
+  const assetResults = await Promise.all([
+    verifyNetworkForAsset("ETH", networkConfig.rpcUrl, networkConfig.viewsAddress, subgraphDaoValues.daoValues, fetchFn),
+    verifyNetworkForAsset("SSV", networkConfig.rpcUrl, networkConfig.viewsAddress, subgraphDaoValues.daoValues, fetchFn),
+  ]);
 
-    if (code === "0x") {
-      throw new Error(`no contract bytecode at ${viewsAddress}`);
-    }
-
-    return {
-      name: "views",
-      status: "pass",
-      detail: `contract code found at ${viewsAddress}`,
-    };
-  } catch (error) {
-    return {
-      name: "views",
-      status: "fail",
-      detail: formatFailureDetail(error),
-    };
-  }
+  return {
+    network,
+    subgraphSource: subgraphDaoValues.source,
+    status: summarizeStatuses(assetResults.map((assetResult) => assetResult.status)),
+    assetResults,
+    checks: assetResults.flatMap((assetResult) => assetResult.checks),
+  };
 }
 
-export async function verifyNetworkHealth(
+export async function verifyNetwork(
   config: RuntimeConfig,
   dependencies: VerifyNetworkDependencies = {},
-): Promise<NetworkHealthResult[]> {
-  const fetchFn = dependencies.fetchFn ?? fetch;
+): Promise<VerifyNetworkRunResult> {
+  const networkResults = await Promise.all(
+    config.activeNetworks.map((network) => verifySingleNetwork(config, network, dependencies)),
+  );
 
-  const results: NetworkHealthResult[] = [];
-
-  for (const network of config.activeNetworks) {
-    const networkConfig = config.networks[network];
-    const checks = [
-      await runRpcCheck(networkConfig.rpcUrl, fetchFn),
-      await runSubgraphCheck(networkConfig.subgraphPrimaryUrl, networkConfig.subgraphFallbackUrl, fetchFn),
-      await runViewsCheck(networkConfig.rpcUrl, networkConfig.viewsAddress, fetchFn),
-    ];
-
-    results.push({
-      network,
-      status: checks.every((check) => check.status === "pass") ? "pass" : "fail",
-      checks,
-    });
-  }
-
-  return results;
+  return {
+    selectedNetwork: config.selectedNetwork,
+    status: summarizeStatuses(networkResults.map((result) => result.status)),
+    networkResults,
+  };
 }
 
-export function renderVerifyNetworkSummary(results: NetworkHealthResult[]): string {
-  const overallStatus = results.every((result) => result.status === "pass") ? "PASS" : "FAIL";
-  const lines = [`verify-network ${overallStatus}`];
+function renderCheckLabel(checkName: VerifyNetworkCheckName): string {
+  return checkName.replace(/(ETH|SSV)$/, "");
+}
 
-  for (const result of results) {
-    lines.push(`${result.network}: ${result.status.toUpperCase()}`);
+export function renderVerifyNetworkSummary(result: VerifyNetworkRunResult): string {
+  const lines = [
+    `verify-network ${result.status.toUpperCase()}`,
+    `network selection: ${result.selectedNetwork}`,
+  ];
 
-    for (const check of result.checks) {
-      lines.push(`- ${check.name}: ${check.status.toUpperCase()} (${check.detail})`);
+  for (const networkResult of result.networkResults) {
+    lines.push(`${networkResult.network}: ${networkResult.status.toUpperCase()} (source=${networkResult.subgraphSource})`);
+
+    for (const assetResult of networkResult.assetResults) {
+      lines.push(`- ${assetResult.asset}: ${assetResult.status.toUpperCase()}`);
+
+      for (const check of assetResult.checks) {
+        lines.push(
+          `- ${renderCheckLabel(check.name)}: ${check.status.toUpperCase()} (subgraph=${check.subgraphValue}; views=${check.viewsValue}; ${check.detail})`,
+        );
+      }
     }
   }
 
   return lines.join("\n");
+}
+
+export function renderVerifyNetworkJson(result: VerifyNetworkRunResult): string {
+  return JSON.stringify(result, null, 2);
 }

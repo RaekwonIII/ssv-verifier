@@ -1,18 +1,28 @@
 import { Interface } from "ethers";
 
 import { jsonRpcRequest } from "./json-rpc.js";
+import viewsAbi from "../abi/ssv-network-views.json" with { type: "json" };
 
-const viewsInterface = new Interface([
-  "function isLiquidatable(address clusterOwner, uint64[] operatorIds, (uint32 validatorCount, uint64 networkFeeIndex, uint64 index, bool active, uint256 balance) cluster) view returns (bool)",
-  "function isLiquidated(address clusterOwner, uint64[] operatorIds, (uint32 validatorCount, uint64 networkFeeIndex, uint64 index, bool active, uint256 balance) cluster) view returns (bool)",
-  "function getBurnRate(address clusterOwner, uint64[] operatorIds, (uint32 validatorCount, uint64 networkFeeIndex, uint64 index, bool active, uint256 balance) cluster) view returns (uint256)",
-  "function getBalance(address clusterOwner, uint64[] operatorIds, (uint32 validatorCount, uint64 networkFeeIndex, uint64 index, bool active, uint256 balance) cluster) view returns (uint256)",
-  "function getOperatorFee(uint64 operatorId) view returns (uint256 fee)",
-  "function getOperatorById(uint64 operatorId) view returns (address owner, uint256 fee, uint32 validatorCount, address whitelistedAddress, bool isPrivate, bool active)",
-  "function getNetworkFee() view returns (uint256 networkFee)",
-  "function getLiquidationThresholdPeriod() view returns (uint64 blocks)",
-  "function getMinimumLiquidationCollateral() view returns (uint256 amount)",
-]);
+const viewsInterface = new Interface(viewsAbi);
+
+export type FeeAsset = "ETH" | "SSV";
+
+type ClusterMethod = "isLiquidatable" | "isLiquidated" | "getBurnRate" | "getBalance";
+type ClusterMethodName = ClusterMethod | `${ClusterMethod}SSV`;
+type NullaryMethod = "getNetworkFee" | "getLiquidationThresholdPeriod" | "getMinimumLiquidationCollateral";
+type NullaryMethodName = NullaryMethod | `${NullaryMethod}SSV`;
+type OperatorFeeMethodName = "getOperatorFee" | "getOperatorFeeSSV";
+
+function assetMethodName<T extends ClusterMethod | NullaryMethod | "getOperatorFee">(
+  asset: FeeAsset,
+  methodName: T,
+): T | `${T}SSV` {
+  if (asset === "ETH") {
+    return methodName;
+  }
+
+  return `${methodName}SSV`;
+}
 
 export interface ViewsOperatorDetails {
   fee: bigint;
@@ -54,6 +64,145 @@ export interface ViewsValidationResult {
   detail: string;
 }
 
+export interface ViewsAdapter {
+  validateClusterState(asset: FeeAsset, owner: string, operatorIds: bigint[], cluster: ViewsClusterState): Promise<ViewsValidationResult>;
+  getClusterBalance(asset: FeeAsset, owner: string, operatorIds: bigint[], cluster: ViewsClusterState): Promise<bigint>;
+  getClusterBurnRate(asset: FeeAsset, owner: string, operatorIds: bigint[], cluster: ViewsClusterState): Promise<bigint>;
+  getClusterLiquidatable(asset: FeeAsset, owner: string, operatorIds: bigint[], cluster: ViewsClusterState): Promise<boolean>;
+  getOperatorFee(asset: FeeAsset, operatorId: bigint): Promise<bigint>;
+  getOperatorDetails(operatorId: bigint): Promise<ViewsOperatorDetails>;
+  getNetworkFee(asset: FeeAsset): Promise<bigint>;
+  getLiquidationThreshold(asset: FeeAsset): Promise<bigint>;
+  getMinimumLiquidationCollateral(asset: FeeAsset): Promise<bigint>;
+}
+
+async function callClusterMethod(
+  rpcUrl: string,
+  viewsAddress: string,
+  asset: FeeAsset,
+  methodName: ClusterMethod,
+  owner: string,
+  operatorIds: bigint[],
+  cluster: ViewsClusterState,
+  fetchFn: typeof fetch,
+): Promise<string> {
+  const assetAwareMethodName = assetMethodName(asset, methodName) as ClusterMethodName;
+  const data = viewsInterface.encodeFunctionData(assetAwareMethodName, [owner, operatorIds, cluster]);
+
+  return ethCall(rpcUrl, viewsAddress, data, fetchFn);
+}
+
+async function callNullaryMethod(
+  rpcUrl: string,
+  viewsAddress: string,
+  asset: FeeAsset,
+  methodName: NullaryMethod,
+  fetchFn: typeof fetch,
+): Promise<string> {
+  const assetAwareMethodName = assetMethodName(asset, methodName) as NullaryMethodName;
+  const data = viewsInterface.encodeFunctionData(assetAwareMethodName, []);
+
+  return ethCall(rpcUrl, viewsAddress, data, fetchFn);
+}
+
+export function createViewsAdapter(
+  rpcUrl: string,
+  viewsAddress: string,
+  fetchFn: typeof fetch = fetch,
+): ViewsAdapter {
+  return {
+    async validateClusterState(asset, owner, operatorIds, cluster) {
+      const methodName = assetMethodName(asset, "isLiquidated") as ClusterMethodName;
+      const data = viewsInterface.encodeFunctionData(methodName, [owner, operatorIds, cluster]);
+
+      try {
+        const response = await ethCall(rpcUrl, viewsAddress, data, fetchFn);
+        const [isLiquidated] = viewsInterface.decodeFunctionResult(methodName, response);
+
+        return {
+          status: "success",
+          isLiquidated,
+          detail: `Views accepted the supplied ${asset} cluster state (liquidated=${String(isLiquidated)})`,
+        };
+      } catch (error) {
+        return {
+          status: "revert",
+          detail: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+
+    async getClusterBalance(asset, owner, operatorIds, cluster) {
+      const methodName = assetMethodName(asset, "getBalance") as ClusterMethodName;
+      const response = await callClusterMethod(rpcUrl, viewsAddress, asset, "getBalance", owner, operatorIds, cluster, fetchFn);
+      const [balance] = viewsInterface.decodeFunctionResult(methodName, response);
+
+      return balance;
+    },
+
+    async getClusterBurnRate(asset, owner, operatorIds, cluster) {
+      const methodName = assetMethodName(asset, "getBurnRate") as ClusterMethodName;
+      const response = await callClusterMethod(rpcUrl, viewsAddress, asset, "getBurnRate", owner, operatorIds, cluster, fetchFn);
+      const [burnRate] = viewsInterface.decodeFunctionResult(methodName, response);
+
+      return burnRate;
+    },
+
+    async getClusterLiquidatable(asset, owner, operatorIds, cluster) {
+      const methodName = assetMethodName(asset, "isLiquidatable") as ClusterMethodName;
+      const response = await callClusterMethod(rpcUrl, viewsAddress, asset, "isLiquidatable", owner, operatorIds, cluster, fetchFn);
+      const [isLiquidatable] = viewsInterface.decodeFunctionResult(methodName, response);
+
+      return isLiquidatable;
+    },
+
+    async getOperatorFee(asset, operatorId) {
+      const methodName = assetMethodName(asset, "getOperatorFee") as OperatorFeeMethodName;
+      const data = viewsInterface.encodeFunctionData(methodName, [operatorId]);
+      const response = await ethCall(rpcUrl, viewsAddress, data, fetchFn);
+      const [fee] = viewsInterface.decodeFunctionResult(methodName, response);
+
+      return fee;
+    },
+
+    async getOperatorDetails(operatorId) {
+      const data = viewsInterface.encodeFunctionData("getOperatorById", [operatorId]);
+      const response = await ethCall(rpcUrl, viewsAddress, data, fetchFn);
+      const [, fee, validatorCount, , , active] = viewsInterface.decodeFunctionResult("getOperatorById", response);
+
+      return {
+        fee,
+        validatorCount: Number(validatorCount),
+        active: Boolean(active),
+      };
+    },
+
+    async getNetworkFee(asset) {
+      const methodName = assetMethodName(asset, "getNetworkFee") as NullaryMethodName;
+      const response = await callNullaryMethod(rpcUrl, viewsAddress, asset, "getNetworkFee", fetchFn);
+      const [networkFee] = viewsInterface.decodeFunctionResult(methodName, response);
+
+      return networkFee;
+    },
+
+    async getLiquidationThreshold(asset) {
+      const methodName = assetMethodName(asset, "getLiquidationThresholdPeriod") as NullaryMethodName;
+      const response = await callNullaryMethod(rpcUrl, viewsAddress, asset, "getLiquidationThresholdPeriod", fetchFn);
+      const [threshold] = viewsInterface.decodeFunctionResult(methodName, response);
+
+      return threshold;
+    },
+
+    async getMinimumLiquidationCollateral(asset) {
+      const methodName = assetMethodName(asset, "getMinimumLiquidationCollateral") as NullaryMethodName;
+      const response = await callNullaryMethod(rpcUrl, viewsAddress, asset, "getMinimumLiquidationCollateral", fetchFn);
+      const [minimumCollateral] = viewsInterface.decodeFunctionResult(methodName, response);
+
+      return minimumCollateral;
+    },
+  };
+}
+
 export async function validateClusterStateWithViews(
   rpcUrl: string,
   viewsAddress: string,
@@ -62,35 +211,7 @@ export async function validateClusterStateWithViews(
   cluster: ViewsClusterState,
   fetchFn: typeof fetch = fetch,
 ): Promise<ViewsValidationResult> {
-  const data = viewsInterface.encodeFunctionData("isLiquidated", [owner, operatorIds, cluster]);
-
-  try {
-    const response = await jsonRpcRequest<string>(
-      rpcUrl,
-      "eth_call",
-      [
-        {
-          to: viewsAddress,
-          data,
-        },
-        "latest",
-      ],
-      fetchFn,
-    );
-
-    const [isLiquidated] = viewsInterface.decodeFunctionResult("isLiquidated", response);
-
-    return {
-      status: "success",
-      isLiquidated,
-      detail: `Views accepted the supplied cluster state (liquidated=${String(isLiquidated)})`,
-    };
-  } catch (error) {
-    return {
-      status: "revert",
-      detail: error instanceof Error ? error.message : String(error),
-    };
-  }
+  return createViewsAdapter(rpcUrl, viewsAddress, fetchFn).validateClusterState("SSV", owner, operatorIds, cluster);
 }
 
 export async function getClusterBalanceFromViews(
@@ -101,11 +222,7 @@ export async function getClusterBalanceFromViews(
   cluster: ViewsClusterState,
   fetchFn: typeof fetch = fetch,
 ): Promise<bigint> {
-  const data = viewsInterface.encodeFunctionData("getBalance", [owner, operatorIds, cluster]);
-  const response = await ethCall(rpcUrl, viewsAddress, data, fetchFn);
-  const [balance] = viewsInterface.decodeFunctionResult("getBalance", response);
-
-  return balance;
+  return createViewsAdapter(rpcUrl, viewsAddress, fetchFn).getClusterBalance("SSV", owner, operatorIds, cluster);
 }
 
 export async function getClusterBurnRateFromViews(
@@ -116,11 +233,7 @@ export async function getClusterBurnRateFromViews(
   cluster: ViewsClusterState,
   fetchFn: typeof fetch = fetch,
 ): Promise<bigint> {
-  const data = viewsInterface.encodeFunctionData("getBurnRate", [owner, operatorIds, cluster]);
-  const response = await ethCall(rpcUrl, viewsAddress, data, fetchFn);
-  const [burnRate] = viewsInterface.decodeFunctionResult("getBurnRate", response);
-
-  return burnRate;
+  return createViewsAdapter(rpcUrl, viewsAddress, fetchFn).getClusterBurnRate("SSV", owner, operatorIds, cluster);
 }
 
 export async function getClusterLiquidatableFromViews(
@@ -131,11 +244,7 @@ export async function getClusterLiquidatableFromViews(
   cluster: ViewsClusterState,
   fetchFn: typeof fetch = fetch,
 ): Promise<boolean> {
-  const data = viewsInterface.encodeFunctionData("isLiquidatable", [owner, operatorIds, cluster]);
-  const response = await ethCall(rpcUrl, viewsAddress, data, fetchFn);
-  const [isLiquidatable] = viewsInterface.decodeFunctionResult("isLiquidatable", response);
-
-  return isLiquidatable;
+  return createViewsAdapter(rpcUrl, viewsAddress, fetchFn).getClusterLiquidatable("SSV", owner, operatorIds, cluster);
 }
 
 export async function getOperatorFeeFromViews(
@@ -144,11 +253,7 @@ export async function getOperatorFeeFromViews(
   operatorId: bigint,
   fetchFn: typeof fetch = fetch,
 ): Promise<bigint> {
-  const data = viewsInterface.encodeFunctionData("getOperatorFee", [operatorId]);
-  const response = await ethCall(rpcUrl, viewsAddress, data, fetchFn);
-  const [fee] = viewsInterface.decodeFunctionResult("getOperatorFee", response);
-
-  return fee;
+  return createViewsAdapter(rpcUrl, viewsAddress, fetchFn).getOperatorFee("SSV", operatorId);
 }
 
 export async function getOperatorDetailsFromViews(
@@ -157,15 +262,7 @@ export async function getOperatorDetailsFromViews(
   operatorId: bigint,
   fetchFn: typeof fetch = fetch,
 ): Promise<ViewsOperatorDetails> {
-  const data = viewsInterface.encodeFunctionData("getOperatorById", [operatorId]);
-  const response = await ethCall(rpcUrl, viewsAddress, data, fetchFn);
-  const [, fee, validatorCount, , , active] = viewsInterface.decodeFunctionResult("getOperatorById", response);
-
-  return {
-    fee,
-    validatorCount: Number(validatorCount),
-    active: Boolean(active),
-  };
+  return createViewsAdapter(rpcUrl, viewsAddress, fetchFn).getOperatorDetails(operatorId);
 }
 
 export async function getNetworkFeeFromViews(
@@ -173,11 +270,7 @@ export async function getNetworkFeeFromViews(
   viewsAddress: string,
   fetchFn: typeof fetch = fetch,
 ): Promise<bigint> {
-  const data = viewsInterface.encodeFunctionData("getNetworkFee", []);
-  const response = await ethCall(rpcUrl, viewsAddress, data, fetchFn);
-  const [networkFee] = viewsInterface.decodeFunctionResult("getNetworkFee", response);
-
-  return networkFee;
+  return createViewsAdapter(rpcUrl, viewsAddress, fetchFn).getNetworkFee("SSV");
 }
 
 export async function getLiquidationThresholdFromViews(
@@ -185,11 +278,7 @@ export async function getLiquidationThresholdFromViews(
   viewsAddress: string,
   fetchFn: typeof fetch = fetch,
 ): Promise<bigint> {
-  const data = viewsInterface.encodeFunctionData("getLiquidationThresholdPeriod", []);
-  const response = await ethCall(rpcUrl, viewsAddress, data, fetchFn);
-  const [threshold] = viewsInterface.decodeFunctionResult("getLiquidationThresholdPeriod", response);
-
-  return threshold;
+  return createViewsAdapter(rpcUrl, viewsAddress, fetchFn).getLiquidationThreshold("SSV");
 }
 
 export async function getMinimumLiquidationCollateralFromViews(
@@ -197,9 +286,5 @@ export async function getMinimumLiquidationCollateralFromViews(
   viewsAddress: string,
   fetchFn: typeof fetch = fetch,
 ): Promise<bigint> {
-  const data = viewsInterface.encodeFunctionData("getMinimumLiquidationCollateral", []);
-  const response = await ethCall(rpcUrl, viewsAddress, data, fetchFn);
-  const [minimumCollateral] = viewsInterface.decodeFunctionResult("getMinimumLiquidationCollateral", response);
-
-  return minimumCollateral;
+  return createViewsAdapter(rpcUrl, viewsAddress, fetchFn).getMinimumLiquidationCollateral("SSV");
 }

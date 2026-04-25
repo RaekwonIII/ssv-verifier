@@ -1,48 +1,51 @@
 # SSV Verifier
 
-Developer CLI for verifying SSV subgraph data against on-chain `Views` data.
+Developer CLI for checking indexed SSV data against on-chain `Views` reads.
 
 ## Requirements
 
 - Node.js 20+
 
-## Install
+## Setup
 
 ```bash
 npm install
 cp .env.example .env
 ```
 
-Fill in the required RPC URLs and `Views` contract addresses in `.env`.
+Fill in the RPC URLs and `Views` addresses for `hoodi` and `mainnet`.
 
-## Run
+## Command Guide
 
-Use the CLI entrypoint with a runtime network selector:
+Use `health-check` when you want to confirm the verifier can reach RPC, subgraph, and `Views`.
 
 ```bash
 npm run dev -- --network hoodi
-npm run dev -- --network mainnet
-npm run dev -- --network both
+npm run dev -- health-check --network mainnet
+npm run dev -- health-check --network both
 ```
 
-Run the network health check command:
+Use `verify-network` when you want to compare network-wide ETH and SSV constants between the subgraph and the asset-aware `Views` surface.
 
 ```bash
 npm run dev -- verify-network --network hoodi
 npm run dev -- verify-network --network mainnet
+npm run dev -- verify-network --network both
+npm run dev -- verify-network --network hoodi --output json
 ```
 
-Run the single-cluster verifier:
+The `verify-network` command compares ETH and SSV network constants from the subgraph against the asset-aware `Views` surface and groups the output by asset type for each network.
+
+Use `verify-cluster` when you want a full check for one cluster.
 
 ```bash
 npm run dev -- verify-cluster --network hoodi --cluster 0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-7-523
 npm run dev -- verify-cluster --network hoodi --cluster 0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-7-523 --output json
 ```
 
-The `verify-cluster` command now checks cluster identity fields, derives the current cluster balance from subgraph accounting inputs, compares that value to `Views.getBalance(...)`, and verifies burn rate plus liquidation status against `Views`.
-Use `--output json` to emit the same result set as structured JSON for automation.
+`verify-cluster` checks cluster identity fields, derives current balance from subgraph accounting inputs, compares that result with `Views.getBalance(...)`, and verifies burn rate plus liquidation status.
 
-Run the batch verifier for every cluster on one network:
+Use `verify-clusters` when you want a network-wide cluster audit.
 
 ```bash
 npm run dev -- verify-clusters --network hoodi
@@ -50,20 +53,32 @@ npm run dev -- verify-clusters --network mainnet
 npm run dev -- verify-clusters --network both
 ```
 
-Build the CLI:
+Use `verify-operator` when you want to compare one operator record against `Views`.
+
+```bash
+npm run dev -- verify-operator --network hoodi --operator 17
+npm run dev -- verify-operator --network mainnet --operator 42
+```
+
+## Built CLI
 
 ```bash
 npm run build
 node dist/index.js --network hoodi
+node dist/index.js health-check --network both
 node dist/index.js verify-network --network hoodi
-node dist/index.js verify-cluster --network hoodi --cluster 0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-7-523
 node dist/index.js verify-cluster --network hoodi --cluster 0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-7-523 --output json
-node dist/index.js verify-clusters --network hoodi
 node dist/index.js verify-clusters --network both
+node dist/index.js verify-operator --network hoodi --operator 17
 ```
 
-Run tests:
+## Reference
+
+See `docs/commands.md` for command semantics, output notes, and caveats.
+
+## Verification
 
 ```bash
 npm test
+npm run build
 ```
