@@ -56,7 +56,7 @@ export interface VerifyClusterDependencies {
 interface NormalizedCluster {
   id: string;
   owner: string;
-  feeAsset: FeeAsset;
+  feeAsset: string | null;
   effectiveBalance: bigint | null;
   operatorIds: bigint[];
   validatorCount: number;
@@ -104,7 +104,7 @@ function normalizeClusterValue(cluster: {
   return {
     id: cluster.id,
     owner: cluster.owner.id.toLowerCase(),
-    feeAsset: cluster.feeAsset === "ETH" ? "ETH" : "SSV",
+    feeAsset: cluster.feeAsset ?? null,
     effectiveBalance: cluster.effectiveBalance ? BigInt(cluster.effectiveBalance) : null,
     operatorIds: cluster.operatorIds.map((operatorId) => BigInt(operatorId)),
     validatorCount: Number.parseInt(cluster.validatorCount, 10),
@@ -287,10 +287,19 @@ function precisionForAsset(asset: FeeAsset): bigint {
   return asset === "ETH" ? ETH_PRECISION : LEGACY_SSV_PRECISION;
 }
 
-function clusterScale(cluster: Pick<NormalizedCluster, "feeAsset" | "effectiveBalance" | "validatorCount">): bigint {
+function clusterScale(cluster: Pick<DerivedClusterAccountingInputs, "feeAsset" | "effectiveBalance" | "validatorCount">): bigint {
   return cluster.feeAsset === "ETH"
     ? (cluster.effectiveBalance ?? 0n) / 32n
     : BigInt(cluster.validatorCount);
+}
+
+interface DerivedClusterAccountingInputs {
+  feeAsset: FeeAsset;
+  effectiveBalance: bigint | null;
+  validatorCount: number;
+  networkFeeIndex: bigint;
+  index: bigint;
+  balance: bigint;
 }
 
 function selectOperatorAccounting(
@@ -332,7 +341,7 @@ function selectDaoAccounting(
 }
 
 export function deriveCurrentClusterBalance(
-  cluster: Pick<NormalizedCluster, "feeAsset" | "effectiveBalance" | "validatorCount" | "networkFeeIndex" | "index" | "balance">,
+  cluster: DerivedClusterAccountingInputs,
   operators: ReadonlyArray<Pick<NormalizedOperator, "fee" | "feeIndex" | "feeIndexBlockNumber">>,
   daoValues: Pick<NormalizedDaoValues, "networkFee" | "networkFeeIndex" | "networkFeeIndexBlockNumber">,
   currentBlock: bigint,
@@ -361,7 +370,7 @@ export function deriveCurrentClusterBalance(
 }
 
 export function deriveClusterBurnRate(
-  cluster: Pick<NormalizedCluster, "feeAsset" | "effectiveBalance" | "validatorCount">,
+  cluster: Pick<DerivedClusterAccountingInputs, "feeAsset" | "effectiveBalance" | "validatorCount">,
   operators: ReadonlyArray<Pick<NormalizedOperator, "fee">>,
   daoValues: Pick<NormalizedDaoValues, "networkFee">,
 ): bigint {
@@ -426,45 +435,39 @@ function createAssetTypeCheck(subgraphAsset: FeeAsset, onChainAsset: FeeAsset): 
   };
 }
 
-async function inferOnChainAsset(
-  views: ReturnType<typeof createViewsAdapter>,
-  cluster: NormalizedCluster,
-): Promise<{
-  asset: FeeAsset | null;
-  validations: Record<FeeAsset, Awaited<ReturnType<ReturnType<typeof createViewsAdapter>["validateClusterState"]>>>;
-}> {
-  const [ethValidation, ssvValidation] = await Promise.all([
-    views.validateClusterState("ETH", cluster.owner, cluster.operatorIds, toViewsClusterState(cluster)),
-    views.validateClusterState("SSV", cluster.owner, cluster.operatorIds, toViewsClusterState(cluster)),
-  ]);
+function isFeeAsset(value: string | null): value is FeeAsset {
+  return value === "ETH" || value === "SSV";
+}
 
-  if (ethValidation.status === "success" && ssvValidation.status === "revert") {
-    return {
-      asset: "ETH",
-      validations: {
-        ETH: ethValidation,
-        SSV: ssvValidation,
-      },
-    };
-  }
+function formatFeeAsset(value: string | null): string {
+  return value ?? "missing";
+}
 
-  if (ethValidation.status === "revert" && ssvValidation.status === "success") {
-    return {
-      asset: "SSV",
-      validations: {
-        ETH: ethValidation,
-        SSV: ssvValidation,
-      },
-    };
-  }
+function createBlockedAccountingChecks(detail: string): ClusterIdentityCheckResult[] {
+  return [
+    createInconclusiveCheck("owner", "unknown", detail),
+    createInconclusiveCheck("operatorIds", "unknown", detail),
+    createInconclusiveCheck("validatorCount", "unknown", detail),
+    createInconclusiveCheck("active", "unknown", detail),
+    createInconclusiveCheck("currentBalance", "unknown", detail),
+    createInconclusiveCheck("burnRate", "unknown", detail),
+    createInconclusiveCheck("liquidationCollateral", "unknown", detail),
+    createInconclusiveCheck("liquidatable", "unknown", detail),
+  ];
+}
 
-  return {
-    asset: null,
-    validations: {
-      ETH: ethValidation,
-      SSV: ssvValidation,
-    },
-  };
+function createBlockedEthAccountingChecks(detail: string): ClusterIdentityCheckResult[] {
+  return [
+    createInconclusiveCheck("owner", "unknown", detail),
+    createInconclusiveCheck("operatorIds", "unknown", detail),
+    createInconclusiveCheck("validatorCount", "unknown", detail),
+    createInconclusiveCheck("active", "unknown", detail),
+    createInconclusiveCheck("effectiveBalance", "unknown", detail),
+    createInconclusiveCheck("currentBalance", "unknown", detail),
+    createInconclusiveCheck("burnRate", "unknown", detail),
+    createInconclusiveCheck("liquidationCollateral", "unknown", detail),
+    createInconclusiveCheck("liquidatable", "unknown", detail),
+  ];
 }
 
 export async function verifyClusterIdentity(
@@ -518,83 +521,178 @@ export async function verifyClusterIdentity(
   const chainHeadBlock = await chainHeadBlockPromise;
   const freshness = createFreshness(BigInt(subgraphAccounting.indexedBlockNumber), chainHeadBlock);
   const views = createViewsAdapter(networkConfig.rpcUrl, networkConfig.viewsAddress, fetchFn);
-  const inferredAsset = await inferOnChainAsset(views, cluster);
-  const assetTypeCheck = inferredAsset.asset
-    ? createAssetTypeCheck(cluster.feeAsset, inferredAsset.asset)
-    : createInconclusiveCheck(
+  const verificationBlockTag = `0x${BigInt(subgraphAccounting.indexedBlockNumber).toString(16)}`;
+  const onChainAsset = await views.getClusterAssetType(cluster.owner, cluster.operatorIds, verificationBlockTag);
+  const subgraphAsset = isFeeAsset(cluster.feeAsset) ? cluster.feeAsset : null;
+  const assetTypeCheck = onChainAsset.status === "revert"
+    ? createInconclusiveCheck(
         "assetType",
-        cluster.feeAsset,
-        `Unable to infer on-chain asset type from Views (ETH=${inferredAsset.validations.ETH.status}: ${inferredAsset.validations.ETH.detail}; SSV=${inferredAsset.validations.SSV.status}: ${inferredAsset.validations.SSV.detail})`,
+        formatFeeAsset(cluster.feeAsset),
+        `Unable to read the on-chain cluster asset type at block ${subgraphAccounting.indexedBlockNumber}: ${onChainAsset.detail}`,
+      )
+    : !subgraphAsset
+      ? createFailureCheck(
+          "assetType",
+          formatFeeAsset(cluster.feeAsset),
+          `Subgraph cluster feeAsset must be ETH or SSV; received ${formatFeeAsset(cluster.feeAsset)}`,
+          onChainAsset.asset ?? `unknown(${onChainAsset.rawVersion?.toString() ?? "missing"})`,
+        )
+      : !onChainAsset.asset
+        ? createFailureCheck(
+            "assetType",
+            subgraphAsset,
+            onChainAsset.detail,
+            `unknown(${onChainAsset.rawVersion?.toString() ?? "missing"})`,
+          )
+        : createAssetTypeCheck(subgraphAsset, onChainAsset.asset);
+  const blockedChecks = subgraphAsset === "ETH"
+    ? createBlockedEthAccountingChecks(
+        `Skipped downstream cluster verification because assetType was ${assetTypeCheck.status.toUpperCase()}`,
+      )
+    : createBlockedAccountingChecks(
+        `Skipped downstream cluster verification because assetType was ${assetTypeCheck.status.toUpperCase()}`,
       );
-  const validationAsset = inferredAsset.asset ?? cluster.feeAsset;
-  const baseline = inferredAsset.validations[validationAsset];
-  const baselineFailure = `Views rejected the subgraph cluster state on the ${validationAsset} surface: ${baseline.detail}`;
-  const selectedOperators = selectOperatorAccounting(validationAsset, operators);
-  const selectedDaoValues = selectDaoAccounting(validationAsset, daoValues);
 
-  const checks = baseline.status === "revert"
-    ? [
-        assetTypeCheck,
-        createFailureCheck("owner", cluster.owner, baselineFailure),
-        createFailureCheck("operatorIds", formatOperatorIds(cluster.operatorIds), baselineFailure),
-        createFailureCheck("validatorCount", String(cluster.validatorCount), baselineFailure),
-        createFailureCheck("active", String(cluster.active), baselineFailure),
-        ...(cluster.feeAsset === "ETH" ? [createFailureCheck("effectiveBalance", String(cluster.effectiveBalance ?? "missing"), baselineFailure)] : []),
-        createFailureCheck("currentBalance", cluster.balance.toString(), baselineFailure),
-        createFailureCheck("burnRate", "unknown", baselineFailure),
-        createFailureCheck("liquidationCollateral", "unknown", baselineFailure),
-        createFailureCheck("liquidatable", "unknown", baselineFailure),
-      ]
+  const checks = assetTypeCheck.status !== "pass"
+    ? [assetTypeCheck, ...blockedChecks]
     : await (() => {
-        const baseChecks = [assetTypeCheck];
-        const identityChecksPromise = Promise.all([
-          runMutationCheck("owner", cluster.owner, () =>
-            views.validateClusterState(validationAsset, mutateAddress(cluster.owner), cluster.operatorIds, toViewsClusterState(cluster))
-          ),
-          runMutationCheck("operatorIds", formatOperatorIds(cluster.operatorIds), () =>
-            views.validateClusterState(validationAsset, cluster.owner, mutateOperatorIds(cluster.operatorIds), toViewsClusterState(cluster))
-          ),
-          runMutationCheck("validatorCount", String(cluster.validatorCount), () =>
-            views.validateClusterState(validationAsset, cluster.owner, cluster.operatorIds, {
-              ...toViewsClusterState(cluster),
-              validatorCount: cluster.validatorCount + 1,
-            })
-          ),
-          runMutationCheck("active", String(cluster.active), () =>
-            views.validateClusterState(validationAsset, cluster.owner, cluster.operatorIds, {
-              ...toViewsClusterState(cluster),
-              active: !cluster.active,
-            })
-          ),
-        ]);
+        const validationAsset: FeeAsset = subgraphAsset!;
+        const baselinePromise = views.validateClusterState(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
+        const selectedOperators = selectOperatorAccounting(validationAsset, operators);
+        const selectedDaoValues = selectDaoAccounting(validationAsset, daoValues);
 
-        if (assetTypeCheck.status === "fail") {
-          return identityChecksPromise.then((identityChecks) => [
-            ...baseChecks,
-            ...identityChecks,
-            createInconclusiveCheck("currentBalance", cluster.balance.toString(), `Skipped ${cluster.feeAsset} accounting checks because the on-chain cluster is ${validationAsset}`),
-            createInconclusiveCheck("burnRate", "unknown", `Skipped ${cluster.feeAsset} accounting checks because the on-chain cluster is ${validationAsset}`),
-            createInconclusiveCheck("liquidationCollateral", "unknown", `Skipped ${cluster.feeAsset} accounting checks because the on-chain cluster is ${validationAsset}`),
-            createInconclusiveCheck("liquidatable", "unknown", `Skipped ${cluster.feeAsset} accounting checks because the on-chain cluster is ${validationAsset}`),
+        return baselinePromise.then((baseline) => {
+          const baselineFailure = `Views rejected the subgraph cluster state on the ${validationAsset} surface: ${baseline.detail}`;
+
+          if (baseline.status === "revert") {
+            return [
+              assetTypeCheck,
+              createFailureCheck("owner", cluster.owner, baselineFailure),
+              createFailureCheck("operatorIds", formatOperatorIds(cluster.operatorIds), baselineFailure),
+              createFailureCheck("validatorCount", String(cluster.validatorCount), baselineFailure),
+              createFailureCheck("active", String(cluster.active), baselineFailure),
+              ...(validationAsset === "ETH" ? [createFailureCheck("effectiveBalance", String(cluster.effectiveBalance ?? "missing"), baselineFailure)] : []),
+              createFailureCheck("currentBalance", cluster.balance.toString(), baselineFailure),
+              createFailureCheck("burnRate", "unknown", baselineFailure),
+              createFailureCheck("liquidationCollateral", "unknown", baselineFailure),
+              createFailureCheck("liquidatable", "unknown", baselineFailure),
+            ];
+          }
+
+          const baseChecks = [assetTypeCheck];
+          const identityChecksPromise = Promise.all([
+            runMutationCheck("owner", cluster.owner, () =>
+              views.validateClusterState(validationAsset, mutateAddress(cluster.owner), cluster.operatorIds, toViewsClusterState(cluster))
+            ),
+            runMutationCheck("operatorIds", formatOperatorIds(cluster.operatorIds), () =>
+              views.validateClusterState(validationAsset, cluster.owner, mutateOperatorIds(cluster.operatorIds), toViewsClusterState(cluster))
+            ),
+            runMutationCheck("validatorCount", String(cluster.validatorCount), () =>
+              views.validateClusterState(validationAsset, cluster.owner, cluster.operatorIds, {
+                ...toViewsClusterState(cluster),
+                validatorCount: cluster.validatorCount + 1,
+              })
+            ),
+            runMutationCheck("active", String(cluster.active), () =>
+              views.validateClusterState(validationAsset, cluster.owner, cluster.operatorIds, {
+                ...toViewsClusterState(cluster),
+                active: !cluster.active,
+              })
+            ),
           ]);
-        }
 
-        if (cluster.feeAsset === "ETH") {
-          const effectiveBalanceCheck = cluster.effectiveBalance !== null
-            && cluster.effectiveBalance > 0n
-            && cluster.effectiveBalance % 32n === 0n
-            ? {
-                name: "effectiveBalance",
-                status: "pass",
-                classification: "verified",
-                subgraphValue: cluster.effectiveBalance.toString(),
-                detail: `ETH effective balance was present and produced scale ${(cluster.effectiveBalance / 32n).toString()}`,
-              } satisfies ClusterIdentityCheckResult
-            : createFailureCheck(
-                "effectiveBalance",
-                cluster.effectiveBalance?.toString() ?? "missing",
-                "ETH effective balance must be present, positive, and divisible by 32",
-              );
+          if (validationAsset === "ETH") {
+            const effectiveBalanceCheck = cluster.effectiveBalance !== null
+              && cluster.effectiveBalance > 0n
+              && cluster.effectiveBalance % 32n === 0n
+              ? {
+                  name: "effectiveBalance",
+                  status: "pass",
+                  classification: "verified",
+                  subgraphValue: cluster.effectiveBalance.toString(),
+                  detail: `ETH effective balance was present and produced scale ${(cluster.effectiveBalance / 32n).toString()}`,
+                } satisfies ClusterIdentityCheckResult
+              : createFailureCheck(
+                  "effectiveBalance",
+                  cluster.effectiveBalance?.toString() ?? "missing",
+                  "ETH effective balance must be present, positive, and divisible by 32",
+                );
+
+            const viewsBalancePromise = views.getClusterBalance(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
+            const viewsBurnRatePromise = views.getClusterBurnRate(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
+            const viewsLiquidatablePromise = views.getClusterLiquidatable(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
+            const viewsLiquidationThresholdPromise = views.getLiquidationThreshold(validationAsset);
+            const viewsMinimumCollateralPromise = views.getMinimumLiquidationCollateral(validationAsset);
+
+            return Promise.all([
+              identityChecksPromise,
+              viewsBalancePromise,
+              viewsBurnRatePromise,
+              viewsLiquidatablePromise,
+              viewsLiquidationThresholdPromise,
+              viewsMinimumCollateralPromise,
+            ]).then(([
+              identityChecks,
+              viewsBalance,
+              viewsBurnRate,
+              viewsLiquidatable,
+              viewsLiquidationThreshold,
+              viewsMinimumCollateral,
+            ]) => {
+              const derivedBalance = deriveCurrentClusterBalance({ ...cluster, feeAsset: validationAsset }, selectedOperators, selectedDaoValues, chainHeadBlock);
+              const derivedBurnRate = deriveClusterBurnRate({ ...cluster, feeAsset: validationAsset }, selectedOperators, selectedDaoValues);
+              const subgraphLiquidationCollateral = deriveLiquidationCollateral(derivedBurnRate, selectedDaoValues);
+              const viewsLiquidationCollateral = deriveLiquidationCollateral(viewsBurnRate, {
+                liquidationThreshold: viewsLiquidationThreshold,
+                minimumLiquidationCollateral: viewsMinimumCollateral,
+              });
+              const expectedLiquidatable = deriveLiquidatableStatus(cluster.active, derivedBalance, subgraphLiquidationCollateral);
+
+              return [
+                ...baseChecks,
+                ...identityChecks,
+                effectiveBalanceCheck,
+                {
+                  name: "currentBalance",
+                  status: derivedBalance === viewsBalance ? "pass" : "fail",
+                  classification: derivedBalance === viewsBalance ? "verified" : "mismatch",
+                  subgraphValue: derivedBalance.toString(),
+                  viewsValue: viewsBalance.toString(),
+                  detail: derivedBalance === viewsBalance
+                    ? `Derived balance matched Views at block ${chainHeadBlock.toString()}`
+                    : `Derived balance did not match Views at block ${chainHeadBlock.toString()}`,
+                } satisfies ClusterIdentityCheckResult,
+                {
+                  name: "burnRate",
+                  status: derivedBurnRate === viewsBurnRate ? "pass" : "fail",
+                  classification: derivedBurnRate === viewsBurnRate ? "verified" : "mismatch",
+                  subgraphValue: derivedBurnRate.toString(),
+                  viewsValue: viewsBurnRate.toString(),
+                  detail: derivedBurnRate === viewsBurnRate ? "Derived burn rate matched Views" : "Derived burn rate did not match Views",
+                } satisfies ClusterIdentityCheckResult,
+                {
+                  name: "liquidationCollateral",
+                  status: subgraphLiquidationCollateral === viewsLiquidationCollateral ? "pass" : "fail",
+                  classification: subgraphLiquidationCollateral === viewsLiquidationCollateral ? "verified" : "mismatch",
+                  subgraphValue: subgraphLiquidationCollateral.toString(),
+                  viewsValue: viewsLiquidationCollateral.toString(),
+                  detail: subgraphLiquidationCollateral === viewsLiquidationCollateral
+                    ? "Derived liquidation collateral matched Views-side collateral inputs"
+                    : "Derived liquidation collateral did not match Views-side collateral inputs",
+                } satisfies ClusterIdentityCheckResult,
+                {
+                  name: "liquidatable",
+                  status: expectedLiquidatable === viewsLiquidatable ? "pass" : "fail",
+                  classification: expectedLiquidatable === viewsLiquidatable ? "verified" : "mismatch",
+                  subgraphValue: String(expectedLiquidatable),
+                  viewsValue: String(viewsLiquidatable),
+                  detail: expectedLiquidatable === viewsLiquidatable
+                    ? `Derived liquidatable status matched Views at block ${chainHeadBlock.toString()} (balance=${derivedBalance.toString()}, collateral=${subgraphLiquidationCollateral.toString()})`
+                    : `Derived liquidatable status did not match Views at block ${chainHeadBlock.toString()} (balance=${derivedBalance.toString()}, collateral=${subgraphLiquidationCollateral.toString()})`,
+                } satisfies ClusterIdentityCheckResult,
+              ];
+            });
+          }
 
           const viewsBalancePromise = views.getClusterBalance(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
           const viewsBurnRatePromise = views.getClusterBurnRate(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
@@ -617,8 +715,8 @@ export async function verifyClusterIdentity(
             viewsLiquidationThreshold,
             viewsMinimumCollateral,
           ]) => {
-            const derivedBalance = deriveCurrentClusterBalance(cluster, selectedOperators, selectedDaoValues, chainHeadBlock);
-            const derivedBurnRate = deriveClusterBurnRate(cluster, selectedOperators, selectedDaoValues);
+            const derivedBalance = deriveCurrentClusterBalance({ ...cluster, feeAsset: validationAsset }, selectedOperators, selectedDaoValues, chainHeadBlock);
+            const derivedBurnRate = deriveClusterBurnRate({ ...cluster, feeAsset: validationAsset }, selectedOperators, selectedDaoValues);
             const subgraphLiquidationCollateral = deriveLiquidationCollateral(derivedBurnRate, selectedDaoValues);
             const viewsLiquidationCollateral = deriveLiquidationCollateral(viewsBurnRate, {
               liquidationThreshold: viewsLiquidationThreshold,
@@ -629,7 +727,6 @@ export async function verifyClusterIdentity(
             return [
               ...baseChecks,
               ...identityChecks,
-              effectiveBalanceCheck,
               {
                 name: "currentBalance",
                 status: derivedBalance === viewsBalance ? "pass" : "fail",
@@ -665,85 +762,11 @@ export async function verifyClusterIdentity(
                 subgraphValue: String(expectedLiquidatable),
                 viewsValue: String(viewsLiquidatable),
                 detail: expectedLiquidatable === viewsLiquidatable
-                  ? `Derived liquidatable status matched Views at block ${chainHeadBlock.toString()} (balance=${derivedBalance.toString()}, collateral=${subgraphLiquidationCollateral.toString()})`
-                  : `Derived liquidatable status did not match Views at block ${chainHeadBlock.toString()} (balance=${derivedBalance.toString()}, collateral=${subgraphLiquidationCollateral.toString()})`,
+                  ? `Derived liquidatable status matched Views at block ${chainHeadBlock.toString()} (balance=${viewsBalance.toString()}, collateral=${subgraphLiquidationCollateral.toString()})`
+                  : `Derived liquidatable status did not match Views at block ${chainHeadBlock.toString()} (balance=${viewsBalance.toString()}, collateral=${subgraphLiquidationCollateral.toString()})`,
               } satisfies ClusterIdentityCheckResult,
             ];
           });
-        }
-
-        const viewsBalancePromise = views.getClusterBalance(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
-        const viewsBurnRatePromise = views.getClusterBurnRate(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
-        const viewsLiquidatablePromise = views.getClusterLiquidatable(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
-        const viewsLiquidationThresholdPromise = views.getLiquidationThreshold(validationAsset);
-        const viewsMinimumCollateralPromise = views.getMinimumLiquidationCollateral(validationAsset);
-
-        return Promise.all([
-          identityChecksPromise,
-          viewsBalancePromise,
-          viewsBurnRatePromise,
-          viewsLiquidatablePromise,
-          viewsLiquidationThresholdPromise,
-          viewsMinimumCollateralPromise,
-        ]).then(([
-          identityChecks,
-          viewsBalance,
-          viewsBurnRate,
-          viewsLiquidatable,
-          viewsLiquidationThreshold,
-          viewsMinimumCollateral,
-        ]) => {
-          const derivedBalance = deriveCurrentClusterBalance(cluster, selectedOperators, selectedDaoValues, chainHeadBlock);
-          const derivedBurnRate = deriveClusterBurnRate(cluster, selectedOperators, selectedDaoValues);
-          const subgraphLiquidationCollateral = deriveLiquidationCollateral(derivedBurnRate, selectedDaoValues);
-          const viewsLiquidationCollateral = deriveLiquidationCollateral(viewsBurnRate, {
-            liquidationThreshold: viewsLiquidationThreshold,
-            minimumLiquidationCollateral: viewsMinimumCollateral,
-          });
-          const expectedLiquidatable = deriveLiquidatableStatus(cluster.active, derivedBalance, subgraphLiquidationCollateral);
-
-          return [
-            ...baseChecks,
-            ...identityChecks,
-            {
-              name: "currentBalance",
-              status: derivedBalance === viewsBalance ? "pass" : "fail",
-              classification: derivedBalance === viewsBalance ? "verified" : "mismatch",
-              subgraphValue: derivedBalance.toString(),
-              viewsValue: viewsBalance.toString(),
-              detail: derivedBalance === viewsBalance
-                ? `Derived balance matched Views at block ${chainHeadBlock.toString()}`
-                : `Derived balance did not match Views at block ${chainHeadBlock.toString()}`,
-            } satisfies ClusterIdentityCheckResult,
-            {
-              name: "burnRate",
-              status: derivedBurnRate === viewsBurnRate ? "pass" : "fail",
-              classification: derivedBurnRate === viewsBurnRate ? "verified" : "mismatch",
-              subgraphValue: derivedBurnRate.toString(),
-              viewsValue: viewsBurnRate.toString(),
-              detail: derivedBurnRate === viewsBurnRate ? "Derived burn rate matched Views" : "Derived burn rate did not match Views",
-            } satisfies ClusterIdentityCheckResult,
-            {
-              name: "liquidationCollateral",
-              status: subgraphLiquidationCollateral === viewsLiquidationCollateral ? "pass" : "fail",
-              classification: subgraphLiquidationCollateral === viewsLiquidationCollateral ? "verified" : "mismatch",
-              subgraphValue: subgraphLiquidationCollateral.toString(),
-              viewsValue: viewsLiquidationCollateral.toString(),
-              detail: subgraphLiquidationCollateral === viewsLiquidationCollateral
-                ? "Derived liquidation collateral matched Views-side collateral inputs"
-                : "Derived liquidation collateral did not match Views-side collateral inputs",
-            } satisfies ClusterIdentityCheckResult,
-            {
-              name: "liquidatable",
-              status: expectedLiquidatable === viewsLiquidatable ? "pass" : "fail",
-              classification: expectedLiquidatable === viewsLiquidatable ? "verified" : "mismatch",
-              subgraphValue: String(expectedLiquidatable),
-              viewsValue: String(viewsLiquidatable),
-              detail: expectedLiquidatable === viewsLiquidatable
-                ? `Derived liquidatable status matched Views at block ${chainHeadBlock.toString()} (balance=${viewsBalance.toString()}, collateral=${subgraphLiquidationCollateral.toString()})`
-                : `Derived liquidatable status did not match Views at block ${chainHeadBlock.toString()} (balance=${viewsBalance.toString()}, collateral=${subgraphLiquidationCollateral.toString()})`,
-            } satisfies ClusterIdentityCheckResult,
-          ];
         });
       })();
 

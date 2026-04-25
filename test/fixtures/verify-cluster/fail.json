@@ -10,7 +10,8 @@
     "networkFeeIndex": "10",
     "index": "20",
     "active": true,
-    "balance": "30"
+    "balance": "30",
+    "feeAsset": "SSV"
   },
   "operators": [
     { "id": "5", "fee": "0", "feeIndex": "10", "feeIndexBlockNumber": "20" },

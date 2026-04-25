@@ -6,6 +6,8 @@ import viewsAbi from "../abi/ssv-network-views.json" with { type: "json" };
 const viewsInterface = new Interface(viewsAbi);
 
 export type FeeAsset = "ETH" | "SSV";
+const SSV_ASSET_VERSION = 0n;
+const ETH_ASSET_VERSION = 1n;
 
 type ClusterMethod = "isLiquidatable" | "isLiquidated" | "getBurnRate" | "getBalance";
 type ClusterMethodName = ClusterMethod | `${ClusterMethod}SSV`;
@@ -35,6 +37,7 @@ async function ethCall(
   viewsAddress: string,
   data: string,
   fetchFn: typeof fetch,
+  blockTag = "latest",
 ): Promise<string> {
   return jsonRpcRequest<string>(
     rpcUrl,
@@ -44,7 +47,7 @@ async function ethCall(
         to: viewsAddress,
         data,
       },
-      "latest",
+      blockTag,
     ],
     fetchFn,
   );
@@ -64,8 +67,16 @@ export interface ViewsValidationResult {
   detail: string;
 }
 
+export interface ViewsClusterAssetTypeResult {
+  status: "success" | "revert";
+  asset?: FeeAsset;
+  rawVersion?: bigint;
+  detail: string;
+}
+
 export interface ViewsAdapter {
   validateClusterState(asset: FeeAsset, owner: string, operatorIds: bigint[], cluster: ViewsClusterState): Promise<ViewsValidationResult>;
+  getClusterAssetType(owner: string, operatorIds: bigint[], blockTag: string): Promise<ViewsClusterAssetTypeResult>;
   getClusterBalance(asset: FeeAsset, owner: string, operatorIds: bigint[], cluster: ViewsClusterState): Promise<bigint>;
   getClusterBurnRate(asset: FeeAsset, owner: string, operatorIds: bigint[], cluster: ViewsClusterState): Promise<bigint>;
   getClusterLiquidatable(asset: FeeAsset, owner: string, operatorIds: bigint[], cluster: ViewsClusterState): Promise<boolean>;
@@ -123,6 +134,44 @@ export function createViewsAdapter(
           status: "success",
           isLiquidated,
           detail: `Views accepted the supplied ${asset} cluster state (liquidated=${String(isLiquidated)})`,
+        };
+      } catch (error) {
+        return {
+          status: "revert",
+          detail: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+
+    async getClusterAssetType(owner, operatorIds, blockTag) {
+      const data = viewsInterface.encodeFunctionData("getClusterAssetType", [owner, operatorIds]);
+
+      try {
+        const response = await ethCall(rpcUrl, viewsAddress, data, fetchFn, blockTag);
+        const [rawVersion] = viewsInterface.decodeFunctionResult("getClusterAssetType", response);
+
+        if (rawVersion === ETH_ASSET_VERSION) {
+          return {
+            status: "success",
+            asset: "ETH",
+            rawVersion,
+            detail: "Views reported ETH cluster accounting",
+          };
+        }
+
+        if (rawVersion === SSV_ASSET_VERSION) {
+          return {
+            status: "success",
+            asset: "SSV",
+            rawVersion,
+            detail: "Views reported SSV cluster accounting",
+          };
+        }
+
+        return {
+          status: "success",
+          rawVersion,
+          detail: `Views returned unsupported cluster asset type ${rawVersion.toString()}`,
         };
       } catch (error) {
         return {

@@ -7,6 +7,7 @@
   "function getBurnRateSSV(address clusterOwner, uint64[] operatorIds, (uint32 validatorCount, uint64 networkFeeIndex, uint64 index, bool active, uint256 balance) cluster) view returns (uint256 burnRate)",
   "function getBalance(address clusterOwner, uint64[] operatorIds, (uint32 validatorCount, uint64 networkFeeIndex, uint64 index, bool active, uint256 balance) cluster) view returns (uint256 balance)",
   "function getBalanceSSV(address clusterOwner, uint64[] operatorIds, (uint32 validatorCount, uint64 networkFeeIndex, uint64 index, bool active, uint256 balance) cluster) view returns (uint256 balance)",
+  "function getClusterAssetType(address owner, uint64[] operatorIds) view returns (uint8 version)",
   "function getOperatorFee(uint64 operatorId) view returns (uint256 fee)",
   "function getOperatorFeeSSV(uint64 operatorId) view returns (uint256 fee)",
   "function getOperatorById(uint64 operatorId) view returns (address owner, uint256 fee, uint32 validatorCount, address whitelistedAddress, bool isPrivate, bool active)",
