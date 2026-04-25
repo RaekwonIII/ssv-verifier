@@ -236,10 +236,10 @@ describe("verifyClusterIdentity", () => {
           JSON.stringify({
             data: {
               operators: [
-                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20" },
-                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20" },
-                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20" },
-                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20" },
+                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
+                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
+                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
+                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "2", feeIndexBlockNumberSSV: "20" },
               ],
               daovalues: {
                 networkFee: "0",
@@ -247,6 +247,11 @@ describe("verifyClusterIdentity", () => {
                 networkFeeIndexBlockNumber: "20",
                 liquidationThreshold: "1",
                 minimumLiquidationCollateral: "1",
+                networkFeeSSV: "0",
+                networkFeeIndexSSV: "10",
+                networkFeeIndexBlockNumberSSV: "20",
+                liquidationThresholdSSV: "1",
+                minimumLiquidationCollateralSSV: "1",
               },
             },
           }),
@@ -266,7 +271,7 @@ describe("verifyClusterIdentity", () => {
       lagBlocks: 0,
       status: "fresh",
     });
-    expect(result.checks).toHaveLength(10);
+    expect(result.checks).toHaveLength(12);
     expect(result.checks.find((check) => check.name === "clusterState")).toMatchObject({
       subgraphValue: clusterId,
       status: "pass",
@@ -274,6 +279,14 @@ describe("verifyClusterIdentity", () => {
     expect(result.checks.find((check) => check.name === "assetType")).toMatchObject({
       subgraphValue: "SSV",
       viewsValue: "SSV",
+      status: "pass",
+    });
+    expect(result.checks.find((check) => check.name === "daoData")).toMatchObject({
+      subgraphValue: "SSV",
+      status: "pass",
+    });
+    expect(result.checks.find((check) => check.name === "operatorData")).toMatchObject({
+      subgraphValue: "SSV",
       status: "pass",
     });
     expect(result.checks.every((check) => check.status === "pass")).toBe(true);
@@ -384,10 +397,10 @@ describe("verifyClusterIdentity", () => {
           JSON.stringify({
             data: {
               operators: [
-                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20" },
-                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20" },
-                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20" },
-                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20" },
+                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
+                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
+                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
+                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "2", feeIndexBlockNumberSSV: "20" },
               ],
               daovalues: {
                 networkFee: "0",
@@ -395,6 +408,11 @@ describe("verifyClusterIdentity", () => {
                 networkFeeIndexBlockNumber: "20",
                 liquidationThreshold: "1",
                 minimumLiquidationCollateral: "1",
+                networkFeeSSV: "0",
+                networkFeeIndexSSV: "10",
+                networkFeeIndexBlockNumberSSV: "20",
+                liquidationThresholdSSV: "1",
+                minimumLiquidationCollateralSSV: "1",
               },
             },
           }),
@@ -483,10 +501,10 @@ describe("verifyClusterIdentity", () => {
           JSON.stringify({
             data: {
               operators: [
-                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20" },
-                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20" },
-                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20" },
-                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20" },
+                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
+                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
+                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
+                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "2", feeIndexBlockNumberSSV: "20" },
               ],
               daovalues: {
                 networkFee: "0",
@@ -494,6 +512,11 @@ describe("verifyClusterIdentity", () => {
                 networkFeeIndexBlockNumber: "20",
                 liquidationThreshold: "1",
                 minimumLiquidationCollateral: "1",
+                networkFeeSSV: "0",
+                networkFeeIndexSSV: "10",
+                networkFeeIndexBlockNumberSSV: "20",
+                liquidationThresholdSSV: "1",
+                minimumLiquidationCollateralSSV: "1",
               },
             },
           }),
@@ -608,10 +631,10 @@ describe("verifyClusterIdentity", () => {
           JSON.stringify({
             data: {
               operators: [
-                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20" },
-                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20" },
-                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20" },
-                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20" },
+                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
+                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
+                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
+                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "2", feeIndexBlockNumberSSV: "20" },
               ],
               daovalues: {
                 networkFee: "0",
@@ -619,6 +642,11 @@ describe("verifyClusterIdentity", () => {
                 networkFeeIndexBlockNumber: "20",
                 liquidationThreshold: "1",
                 minimumLiquidationCollateral: "1",
+                networkFeeSSV: "0",
+                networkFeeIndexSSV: "10",
+                networkFeeIndexBlockNumberSSV: "20",
+                liquidationThresholdSSV: "1",
+                minimumLiquidationCollateralSSV: "1",
               },
             },
           }),
@@ -997,10 +1025,10 @@ describe("verifyClusterIdentity", () => {
           JSON.stringify({
             data: {
               operators: [
-                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20" },
-                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20" },
-                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20" },
-                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20" },
+                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
+                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
+                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
+                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "2", feeIndexBlockNumberSSV: "20" },
               ],
               daovalues: {
                 networkFee: "0",
@@ -1008,6 +1036,11 @@ describe("verifyClusterIdentity", () => {
                 networkFeeIndexBlockNumber: "20",
                 liquidationThreshold: "1",
                 minimumLiquidationCollateral: "1",
+                networkFeeSSV: "0",
+                networkFeeIndexSSV: "10",
+                networkFeeIndexBlockNumberSSV: "20",
+                liquidationThresholdSSV: "1",
+                minimumLiquidationCollateralSSV: "1",
               },
             },
           }),
@@ -1118,10 +1151,10 @@ describe("verifyClusterIdentity", () => {
           JSON.stringify({
             data: {
               operators: [
-                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20" },
-                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20" },
-                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20" },
-                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20" },
+                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
+                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
+                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
+                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "2", feeIndexBlockNumberSSV: "20" },
               ],
               daovalues: {
                 networkFee: "0",
@@ -1129,6 +1162,11 @@ describe("verifyClusterIdentity", () => {
                 networkFeeIndexBlockNumber: "20",
                 liquidationThreshold: "1",
                 minimumLiquidationCollateral: "1",
+                networkFeeSSV: "0",
+                networkFeeIndexSSV: "10",
+                networkFeeIndexBlockNumberSSV: "20",
+                liquidationThresholdSSV: "1",
+                minimumLiquidationCollateralSSV: "1",
               },
             },
           }),
@@ -1240,9 +1278,204 @@ describe("verifyClusterIdentity", () => {
       status: "fail",
     });
     expect(result.checks.filter((check) => check.status === "fail")).toHaveLength(1);
-    expect(result.checks.filter((check) => check.status === "inconclusive")).toHaveLength(8);
-    expect(result.checks).toHaveLength(10);
+    expect(result.checks.filter((check) => check.status === "inconclusive")).toHaveLength(10);
+    expect(result.checks).toHaveLength(12);
     expect(renderVerifyClusterSummary(result)).toContain("Views rejected the subgraph cluster state");
+  });
+
+  it("marks missing selected-surface operator inputs as operatorData inconclusive and blocks derived checks", async () => {
+    const config = loadRuntimeConfig("hoodi", baseEnv);
+    let ethCallCount = 0;
+    const fetchFn: typeof fetch = async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { method?: string; query?: string };
+
+      if (body.method === "eth_blockNumber") {
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x14" }), { status: 200 });
+      }
+
+      if (body.method === "eth_call") {
+        ethCallCount += 1;
+
+        if (ethCallCount === 1) {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }), { status: 200 });
+        }
+
+        if (ethCallCount === 2) {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }), { status: 200 });
+        }
+
+        if (ethCallCount >= 3 && ethCallCount <= 6) {
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: 3, message: "execution reverted: IncorrectClusterState" } }),
+            { status: 200 },
+          );
+        }
+
+        throw new Error(`Unexpected eth_call #${ethCallCount}`);
+      }
+
+      if (body.query?.includes("cluster(id: $id)")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              _meta: { block: { number: 20 } },
+              cluster: {
+                id: clusterId,
+                owner: { id: "0xe8c927a1fa792eddefe23fda643a62e03f999830" },
+                operatorIds: ["5", "6", "7", "523"],
+                validatorCount: "1",
+                networkFeeIndex: "10",
+                index: "20",
+                active: true,
+                balance: "30",
+                feeAsset: "SSV",
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (body.query?.includes("daovalues(id: $daoId)")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              operators: [
+                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20" },
+                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20" },
+                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20" },
+                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20" },
+              ],
+              daovalues: {
+                networkFee: "0",
+                networkFeeIndex: "10",
+                networkFeeIndexBlockNumber: "20",
+                liquidationThreshold: "1",
+                minimumLiquidationCollateral: "1",
+                networkFeeSSV: "0",
+                networkFeeIndexSSV: "10",
+                networkFeeIndexBlockNumberSSV: "20",
+                liquidationThresholdSSV: "1",
+                minimumLiquidationCollateralSSV: "1",
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+
+      throw new Error(`Unexpected request payload: ${JSON.stringify(body)}`);
+    };
+
+    const result = await verifyClusterIdentity(config, clusterId, { fetchFn });
+
+    expect(result.status).toBe("inconclusive");
+    expect(result.checks.find((check) => check.name === "daoData")).toMatchObject({
+      status: "pass",
+    });
+    expect(result.checks.find((check) => check.name === "operatorData")).toMatchObject({
+      status: "inconclusive",
+      detail: expect.stringContaining("feeSSV"),
+    });
+    expect(result.checks.find((check) => check.name === "currentBalance")).toMatchObject({
+      status: "inconclusive",
+      blockedBy: ["operatorData"],
+    });
+  });
+
+  it("fails daoData when selected-surface DAO inputs are missing and blocks derived checks", async () => {
+    const config = loadRuntimeConfig("hoodi", baseEnv);
+    let ethCallCount = 0;
+    const fetchFn: typeof fetch = async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as { method?: string; query?: string };
+
+      if (body.method === "eth_blockNumber") {
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x14" }), { status: 200 });
+      }
+
+      if (body.method === "eth_call") {
+        ethCallCount += 1;
+
+        if (ethCallCount === 1) {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }), { status: 200 });
+        }
+
+        if (ethCallCount === 2) {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }), { status: 200 });
+        }
+
+        if (ethCallCount >= 3 && ethCallCount <= 6) {
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: 3, message: "execution reverted: IncorrectClusterState" } }),
+            { status: 200 },
+          );
+        }
+
+        throw new Error(`Unexpected eth_call #${ethCallCount}`);
+      }
+
+      if (body.query?.includes("cluster(id: $id)")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              _meta: { block: { number: 20 } },
+              cluster: {
+                id: clusterId,
+                owner: { id: "0xe8c927a1fa792eddefe23fda643a62e03f999830" },
+                operatorIds: ["5", "6", "7", "523"],
+                validatorCount: "1",
+                networkFeeIndex: "10",
+                index: "20",
+                active: true,
+                balance: "30",
+                feeAsset: "SSV",
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+
+      if (body.query?.includes("daovalues(id: $daoId)")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              operators: [
+                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
+                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
+                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
+                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "2", feeIndexBlockNumberSSV: "20" },
+              ],
+              daovalues: {
+                networkFee: "0",
+                networkFeeIndex: "10",
+                networkFeeIndexBlockNumber: "20",
+                liquidationThreshold: "1",
+                minimumLiquidationCollateral: "1",
+              },
+            },
+          }),
+          { status: 200 },
+        );
+      }
+
+      throw new Error(`Unexpected request payload: ${JSON.stringify(body)}`);
+    };
+
+    const result = await verifyClusterIdentity(config, clusterId, { fetchFn });
+
+    expect(result.status).toBe("fail");
+    expect(result.checks.find((check) => check.name === "daoData")).toMatchObject({
+      status: "fail",
+      detail: expect.stringContaining("networkFeeSSV"),
+    });
+    expect(result.checks.find((check) => check.name === "operatorData")).toMatchObject({
+      status: "pass",
+    });
+    expect(result.checks.find((check) => check.name === "currentBalance")).toMatchObject({
+      status: "inconclusive",
+      blockedBy: ["daoData"],
+    });
   });
 
   it("fails clusterState for malformed discovered cluster ids and blocks downstream checks", async () => {

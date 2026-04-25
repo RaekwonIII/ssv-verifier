@@ -275,7 +275,7 @@ describe("verifyAllClusters", () => {
     expect(result).toMatchObject({
       status: "fail",
       totalClusters: 1,
-      inconclusiveChecks: 9,
+      inconclusiveChecks: 11,
       failedChecks: 1,
     });
     expect(result.clusterResults[0]).toMatchObject({
