@@ -142,3 +142,7 @@
 - Relaxed the ETH `effectiveBalance` gate so non-divisible positive balances remain valid verification inputs while missing or non-positive values fail explicitly.
 - Updated the ETH verification path so a non-passing `effectiveBalance` check blocks all four derived checks with `blockedBy` metadata instead of continuing into derived Views comparisons.
 - Expanded regression coverage for non-divisible ETH effective balances and missing ETH effective balance blocking, then verified the slice with `npx vitest run test/verify-cluster.test.ts test/verify-clusters.test.ts`, `npm test`, and `npm run build`.
+- Reviewed the current repository state, progress log, and open GitHub issues #55 through #68, then selected issue #55 as the next unblocked slice after #54.
+- Extracted the cluster accounting math into a pure `src/domain/cluster-accounting.ts` module that returns final outputs plus structured intermediate terms for current balance, burn rate, liquidation collateral, and liquidatable status.
+- Corrected ETH accounting to use multiply-then-divide scaling and removed the legacy zero clamp on derived current balance, while keeping the existing `verify-cluster` command wired through the new pure accounting module.
+- Added focused module coverage for SSV parity, ETH multiply-then-divide parity, intermediate-term debugging output, and zero-clamp removal, then verified the slice with `npx vitest run test/cluster-accounting.test.ts test/verify-cluster.test.ts`, `npm test`, and `npm run build`.

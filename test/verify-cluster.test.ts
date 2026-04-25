@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  deriveClusterBurnRate,
-  deriveCurrentClusterBalance,
-  deriveLiquidatableStatus,
-  deriveLiquidationCollateral,
   renderVerifyClusterJson,
   renderVerifyClusterSummary,
   verifyClusterIdentity,
 } from "../src/commands/verify-cluster.js";
+import {
+  deriveClusterBurnRate,
+  deriveCurrentClusterBalance,
+  deriveLiquidatableStatus,
+  deriveLiquidationCollateral,
+} from "../src/domain/cluster-accounting.js";
 import { loadRuntimeConfig } from "../src/config/env.js";
 import { parseClusterId } from "../src/domain/cluster-id.js";
 import { parseCliArgs } from "../src/index.js";
@@ -107,7 +109,7 @@ describe("verifyClusterIdentity", () => {
       104n,
     );
 
-    expect(balance).toBe(380n);
+    expect(balance.value).toBe(380n);
   });
 
   it("derives liquidation values from subgraph accounting inputs", () => {
@@ -116,16 +118,16 @@ describe("verifyClusterIdentity", () => {
       [{ fee: 3n }, { fee: 5n }],
       { networkFee: 7n },
     );
-    const collateral = deriveLiquidationCollateral(burnRate, {
+    const collateral = deriveLiquidationCollateral(burnRate.value, {
       liquidationThreshold: 10n,
       minimumLiquidationCollateral: 100n,
     });
 
-    expect(burnRate).toBe(30n);
-    expect(collateral).toBe(300n);
-    expect(deriveLiquidatableStatus(true, 299n, collateral)).toBe(true);
-    expect(deriveLiquidatableStatus(true, 300n, collateral)).toBe(false);
-    expect(deriveLiquidatableStatus(false, 0n, collateral)).toBe(false);
+    expect(burnRate.value).toBe(30n);
+    expect(collateral.value).toBe(300n);
+    expect(deriveLiquidatableStatus(true, 299n, collateral.value).value).toBe(true);
+    expect(deriveLiquidatableStatus(true, 300n, collateral.value).value).toBe(false);
+    expect(deriveLiquidatableStatus(false, 0n, collateral.value).value).toBe(false);
   });
 
   it("reports a successful comparison flow", async () => {

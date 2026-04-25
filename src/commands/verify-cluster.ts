@@ -3,15 +3,18 @@ import type { SingleNetwork } from "../config/networks.js";
 import { jsonRpcRequest } from "../clients/json-rpc.js";
 import { fetchPinnedSubgraphClusterSnapshot } from "../clients/subgraph.js";
 import { parseClusterId } from "../domain/cluster-id.js";
+import {
+  deriveClusterBurnRate,
+  deriveCurrentClusterBalance,
+  deriveLiquidatableStatus,
+  deriveLiquidationCollateral,
+} from "../domain/cluster-accounting.js";
 import { summarizeStatuses, type CheckStatus } from "../status.js";
 import {
   createViewsAdapter,
   type FeeAsset,
   type ViewsClusterState,
 } from "../clients/views.js";
-
-const ETH_PRECISION = 100_000n;
-const LEGACY_SSV_PRECISION = 10_000_000n;
 
 export interface SubgraphFreshness {
   indexedBlockNumber: number;
@@ -295,26 +298,6 @@ function summarizeStatus(checks: ClusterIdentityCheckResult[]): CheckStatus {
   return summarizeStatuses(checks.map((check) => check.status));
 }
 
-function currentIndex(
-  baseIndex: bigint,
-  fee: bigint,
-  startBlock: bigint,
-  currentBlock: bigint,
-  precision: bigint,
-): bigint {
-  return (baseIndex * precision) + ((currentBlock - startBlock) * fee);
-}
-
-function precisionForAsset(asset: FeeAsset): bigint {
-  return asset === "ETH" ? ETH_PRECISION : LEGACY_SSV_PRECISION;
-}
-
-function clusterScale(cluster: Pick<DerivedClusterAccountingInputs, "feeAsset" | "effectiveBalance" | "validatorCount">): bigint {
-  return cluster.feeAsset === "ETH"
-    ? (cluster.effectiveBalance ?? 0n) / 32n
-    : BigInt(cluster.validatorCount);
-}
-
 interface DerivedClusterAccountingInputs {
   feeAsset: FeeAsset;
   effectiveBalance: bigint | null;
@@ -360,56 +343,6 @@ function selectDaoAccounting(
         liquidationThreshold: daoValues.liquidationThresholdSSV,
         minimumLiquidationCollateral: daoValues.minimumLiquidationCollateralSSV,
       };
-}
-
-export function deriveCurrentClusterBalance(
-  cluster: DerivedClusterAccountingInputs,
-  operators: ReadonlyArray<Pick<NormalizedOperator, "fee" | "feeIndex" | "feeIndexBlockNumber">>,
-  daoValues: Pick<NormalizedDaoValues, "networkFee" | "networkFeeIndex" | "networkFeeIndexBlockNumber">,
-  currentBlock: bigint,
-): bigint {
-  const precision = precisionForAsset(cluster.feeAsset);
-  const operatorIndexes = operators.reduce(
-    (sum, operator) => sum + currentIndex(operator.feeIndex, operator.fee, operator.feeIndexBlockNumber, currentBlock, precision),
-    0n,
-  );
-  const networkIndex = currentIndex(
-    daoValues.networkFeeIndex,
-    daoValues.networkFee,
-    daoValues.networkFeeIndexBlockNumber,
-    currentBlock,
-    precision,
-  );
-  const totalCurrentIndexes = operatorIndexes + networkIndex;
-  const totalClusterIndex = (cluster.index * precision) + (cluster.networkFeeIndex * precision);
-  const indexDelta = totalCurrentIndexes - totalClusterIndex;
-  const scale = cluster.feeAsset === "ETH"
-    ? (cluster.effectiveBalance ?? 0n) / 32n
-    : BigInt(cluster.validatorCount);
-  const currentBalance = cluster.balance - (indexDelta * scale);
-
-  return currentBalance > 0n ? currentBalance : 0n;
-}
-
-export function deriveClusterBurnRate(
-  cluster: Pick<DerivedClusterAccountingInputs, "feeAsset" | "effectiveBalance" | "validatorCount">,
-  operators: ReadonlyArray<Pick<NormalizedOperator, "fee">>,
-  daoValues: Pick<NormalizedDaoValues, "networkFee">,
-): bigint {
-  const operatorFees = operators.reduce((sum, operator) => sum + operator.fee, 0n);
-  return (operatorFees + daoValues.networkFee) * clusterScale(cluster);
-}
-
-export function deriveLiquidationCollateral(
-  burnRate: bigint,
-  daoValues: Pick<NormalizedDaoValues, "liquidationThreshold" | "minimumLiquidationCollateral">,
-): bigint {
-  const threshold = burnRate * daoValues.liquidationThreshold;
-  return threshold > daoValues.minimumLiquidationCollateral ? threshold : daoValues.minimumLiquidationCollateral;
-}
-
-export function deriveLiquidatableStatus(active: boolean, currentBalance: bigint, liquidationCollateral: bigint): boolean {
-  return active && currentBalance < liquidationCollateral;
 }
 
 function hexToBigInt(value: string): bigint {
@@ -1028,12 +961,12 @@ export async function verifyClusterIdentity(
             ]) => {
               const derivedBalance = deriveCurrentClusterBalance({ ...cluster, feeAsset: validationAsset }, selectedOperators, selectedDaoValues, chainHeadBlock);
               const derivedBurnRate = deriveClusterBurnRate({ ...cluster, feeAsset: validationAsset }, selectedOperators, selectedDaoValues);
-              const subgraphLiquidationCollateral = deriveLiquidationCollateral(derivedBurnRate, selectedDaoValues);
+              const subgraphLiquidationCollateral = deriveLiquidationCollateral(derivedBurnRate.value, selectedDaoValues);
               const viewsLiquidationCollateral = deriveLiquidationCollateral(viewsBurnRate, {
                 liquidationThreshold: viewsLiquidationThreshold,
                 minimumLiquidationCollateral: viewsMinimumCollateral,
               });
-              const expectedLiquidatable = deriveLiquidatableStatus(cluster.active, derivedBalance, subgraphLiquidationCollateral);
+              const expectedLiquidatable = deriveLiquidatableStatus(cluster.active, derivedBalance.value, subgraphLiquidationCollateral.value);
 
               return [
                 ...baseChecks,
@@ -1043,41 +976,41 @@ export async function verifyClusterIdentity(
                 effectiveBalanceCheck,
                 {
                   name: "currentBalance",
-                  status: derivedBalance === viewsBalance ? "pass" : "fail",
-                  classification: derivedBalance === viewsBalance ? "verified" : "mismatch",
-                  subgraphValue: derivedBalance.toString(),
+                  status: derivedBalance.value === viewsBalance ? "pass" : "fail",
+                  classification: derivedBalance.value === viewsBalance ? "verified" : "mismatch",
+                  subgraphValue: derivedBalance.value.toString(),
                   viewsValue: viewsBalance.toString(),
-                  detail: derivedBalance === viewsBalance
+                  detail: derivedBalance.value === viewsBalance
                     ? `Derived balance matched Views at block ${chainHeadBlock.toString()}`
                     : `Derived balance did not match Views at block ${chainHeadBlock.toString()}`,
                 } satisfies ClusterIdentityCheckResult,
                 {
                   name: "burnRate",
-                  status: derivedBurnRate === viewsBurnRate ? "pass" : "fail",
-                  classification: derivedBurnRate === viewsBurnRate ? "verified" : "mismatch",
-                  subgraphValue: derivedBurnRate.toString(),
+                  status: derivedBurnRate.value === viewsBurnRate ? "pass" : "fail",
+                  classification: derivedBurnRate.value === viewsBurnRate ? "verified" : "mismatch",
+                  subgraphValue: derivedBurnRate.value.toString(),
                   viewsValue: viewsBurnRate.toString(),
-                  detail: derivedBurnRate === viewsBurnRate ? "Derived burn rate matched Views" : "Derived burn rate did not match Views",
+                  detail: derivedBurnRate.value === viewsBurnRate ? "Derived burn rate matched Views" : "Derived burn rate did not match Views",
                 } satisfies ClusterIdentityCheckResult,
                 {
                   name: "liquidationCollateral",
-                  status: subgraphLiquidationCollateral === viewsLiquidationCollateral ? "pass" : "fail",
-                  classification: subgraphLiquidationCollateral === viewsLiquidationCollateral ? "verified" : "mismatch",
-                  subgraphValue: subgraphLiquidationCollateral.toString(),
-                  viewsValue: viewsLiquidationCollateral.toString(),
-                  detail: subgraphLiquidationCollateral === viewsLiquidationCollateral
+                  status: subgraphLiquidationCollateral.value === viewsLiquidationCollateral.value ? "pass" : "fail",
+                  classification: subgraphLiquidationCollateral.value === viewsLiquidationCollateral.value ? "verified" : "mismatch",
+                  subgraphValue: subgraphLiquidationCollateral.value.toString(),
+                  viewsValue: viewsLiquidationCollateral.value.toString(),
+                  detail: subgraphLiquidationCollateral.value === viewsLiquidationCollateral.value
                     ? "Derived liquidation collateral matched Views-side collateral inputs"
                     : "Derived liquidation collateral did not match Views-side collateral inputs",
                 } satisfies ClusterIdentityCheckResult,
                 {
                   name: "liquidatable",
-                  status: expectedLiquidatable === viewsLiquidatable ? "pass" : "fail",
-                  classification: expectedLiquidatable === viewsLiquidatable ? "verified" : "mismatch",
-                  subgraphValue: String(expectedLiquidatable),
+                  status: expectedLiquidatable.value === viewsLiquidatable ? "pass" : "fail",
+                  classification: expectedLiquidatable.value === viewsLiquidatable ? "verified" : "mismatch",
+                  subgraphValue: String(expectedLiquidatable.value),
                   viewsValue: String(viewsLiquidatable),
-                  detail: expectedLiquidatable === viewsLiquidatable
-                    ? `Derived liquidatable status matched Views at block ${chainHeadBlock.toString()} (balance=${derivedBalance.toString()}, collateral=${subgraphLiquidationCollateral.toString()})`
-                    : `Derived liquidatable status did not match Views at block ${chainHeadBlock.toString()} (balance=${derivedBalance.toString()}, collateral=${subgraphLiquidationCollateral.toString()})`,
+                  detail: expectedLiquidatable.value === viewsLiquidatable
+                    ? `Derived liquidatable status matched Views at block ${chainHeadBlock.toString()} (balance=${derivedBalance.value.toString()}, collateral=${subgraphLiquidationCollateral.value.toString()})`
+                    : `Derived liquidatable status did not match Views at block ${chainHeadBlock.toString()} (balance=${derivedBalance.value.toString()}, collateral=${subgraphLiquidationCollateral.value.toString()})`,
                 } satisfies ClusterIdentityCheckResult,
               ];
             });
@@ -1124,12 +1057,12 @@ export async function verifyClusterIdentity(
           ]) => {
             const derivedBalance = deriveCurrentClusterBalance({ ...cluster, feeAsset: validationAsset }, selectedOperators, selectedDaoValues, chainHeadBlock);
             const derivedBurnRate = deriveClusterBurnRate({ ...cluster, feeAsset: validationAsset }, selectedOperators, selectedDaoValues);
-            const subgraphLiquidationCollateral = deriveLiquidationCollateral(derivedBurnRate, selectedDaoValues);
+            const subgraphLiquidationCollateral = deriveLiquidationCollateral(derivedBurnRate.value, selectedDaoValues);
             const viewsLiquidationCollateral = deriveLiquidationCollateral(viewsBurnRate, {
               liquidationThreshold: viewsLiquidationThreshold,
               minimumLiquidationCollateral: viewsMinimumCollateral,
             });
-            const expectedLiquidatable = deriveLiquidatableStatus(cluster.active, derivedBalance, subgraphLiquidationCollateral);
+            const expectedLiquidatable = deriveLiquidatableStatus(cluster.active, derivedBalance.value, subgraphLiquidationCollateral.value);
 
             return [
               ...baseChecks,
@@ -1138,41 +1071,41 @@ export async function verifyClusterIdentity(
               operatorDataCheck,
               {
                 name: "currentBalance",
-                status: derivedBalance === viewsBalance ? "pass" : "fail",
-                classification: derivedBalance === viewsBalance ? "verified" : "mismatch",
-                subgraphValue: derivedBalance.toString(),
+                status: derivedBalance.value === viewsBalance ? "pass" : "fail",
+                classification: derivedBalance.value === viewsBalance ? "verified" : "mismatch",
+                subgraphValue: derivedBalance.value.toString(),
                 viewsValue: viewsBalance.toString(),
-                detail: derivedBalance === viewsBalance
+                detail: derivedBalance.value === viewsBalance
                   ? `Derived balance matched Views at block ${chainHeadBlock.toString()}`
                   : `Derived balance did not match Views at block ${chainHeadBlock.toString()}`,
               } satisfies ClusterIdentityCheckResult,
               {
                 name: "burnRate",
-                status: derivedBurnRate === viewsBurnRate ? "pass" : "fail",
-                classification: derivedBurnRate === viewsBurnRate ? "verified" : "mismatch",
-                subgraphValue: derivedBurnRate.toString(),
+                status: derivedBurnRate.value === viewsBurnRate ? "pass" : "fail",
+                classification: derivedBurnRate.value === viewsBurnRate ? "verified" : "mismatch",
+                subgraphValue: derivedBurnRate.value.toString(),
                 viewsValue: viewsBurnRate.toString(),
-                detail: derivedBurnRate === viewsBurnRate ? "Derived burn rate matched Views" : "Derived burn rate did not match Views",
+                detail: derivedBurnRate.value === viewsBurnRate ? "Derived burn rate matched Views" : "Derived burn rate did not match Views",
               } satisfies ClusterIdentityCheckResult,
               {
                 name: "liquidationCollateral",
-                status: subgraphLiquidationCollateral === viewsLiquidationCollateral ? "pass" : "fail",
-                classification: subgraphLiquidationCollateral === viewsLiquidationCollateral ? "verified" : "mismatch",
-                subgraphValue: subgraphLiquidationCollateral.toString(),
-                viewsValue: viewsLiquidationCollateral.toString(),
-                detail: subgraphLiquidationCollateral === viewsLiquidationCollateral
+                status: subgraphLiquidationCollateral.value === viewsLiquidationCollateral.value ? "pass" : "fail",
+                classification: subgraphLiquidationCollateral.value === viewsLiquidationCollateral.value ? "verified" : "mismatch",
+                subgraphValue: subgraphLiquidationCollateral.value.toString(),
+                viewsValue: viewsLiquidationCollateral.value.toString(),
+                detail: subgraphLiquidationCollateral.value === viewsLiquidationCollateral.value
                   ? "Derived liquidation collateral matched Views-side collateral inputs"
                   : "Derived liquidation collateral did not match Views-side collateral inputs",
               } satisfies ClusterIdentityCheckResult,
               {
                 name: "liquidatable",
-                status: expectedLiquidatable === viewsLiquidatable ? "pass" : "fail",
-                classification: expectedLiquidatable === viewsLiquidatable ? "verified" : "mismatch",
-                subgraphValue: String(expectedLiquidatable),
+                status: expectedLiquidatable.value === viewsLiquidatable ? "pass" : "fail",
+                classification: expectedLiquidatable.value === viewsLiquidatable ? "verified" : "mismatch",
+                subgraphValue: String(expectedLiquidatable.value),
                 viewsValue: String(viewsLiquidatable),
-                detail: expectedLiquidatable === viewsLiquidatable
-                  ? `Derived liquidatable status matched Views at block ${chainHeadBlock.toString()} (balance=${viewsBalance.toString()}, collateral=${subgraphLiquidationCollateral.toString()})`
-                  : `Derived liquidatable status did not match Views at block ${chainHeadBlock.toString()} (balance=${viewsBalance.toString()}, collateral=${subgraphLiquidationCollateral.toString()})`,
+                detail: expectedLiquidatable.value === viewsLiquidatable
+                  ? `Derived liquidatable status matched Views at block ${chainHeadBlock.toString()} (balance=${viewsBalance.toString()}, collateral=${subgraphLiquidationCollateral.value.toString()})`
+                  : `Derived liquidatable status did not match Views at block ${chainHeadBlock.toString()} (balance=${viewsBalance.toString()}, collateral=${subgraphLiquidationCollateral.value.toString()})`,
               } satisfies ClusterIdentityCheckResult,
             ];
           });
