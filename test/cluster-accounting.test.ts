@@ -134,6 +134,38 @@ describe("cluster accounting", () => {
     expect(balance.value).toBe(-30n);
   });
 
+  it("keeps empty clusters on the dedicated zero-burn path", () => {
+    const result = deriveClusterAccounting(
+      {
+        feeAsset: "ETH",
+        effectiveBalance: null,
+        validatorCount: 0,
+        networkFeeIndex: 15n,
+        index: 20n,
+        balance: 75n,
+        active: true,
+      },
+      [],
+      {
+        networkFee: 64n,
+        networkFeeIndex: 12n,
+        networkFeeIndexBlockNumber: 100n,
+        liquidationThreshold: 10n,
+        minimumLiquidationCollateral: 5n,
+      },
+      105n,
+    );
+
+    expect(result.outputs).toEqual({
+      currentBalance: 75n,
+      burnRate: 0n,
+      liquidationCollateral: 5n,
+      liquidatable: false,
+    });
+    expect(result.intermediates.currentBalance.balanceDelta.scaledValue).toBe(0n);
+    expect(result.intermediates.burnRate.burnRate.scaledValue).toBe(0n);
+  });
+
   it("derives liquidation helpers from the pure accounting values", () => {
     const collateral = deriveLiquidationCollateral(30n, {
       liquidationThreshold: 10n,
