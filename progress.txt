@@ -126,3 +126,9 @@
 - Updated `verify-cluster` to read the on-chain asset type at the pinned subgraph verification block, fail cleanly on invalid subgraph or unsupported on-chain asset values, and block downstream cluster checks whenever the asset gate is non-passing.
 - Expanded Views, cluster, and fixture regression coverage for the new pinned asset-type read path, the revised call order, and the blocked downstream behavior.
 - Verified the slice with `npx vitest run test/views.test.ts test/verify-cluster.test.ts test/subgraph.test.ts`, `npm test`, and `npm run build`.
+2026-04-25 Iteration 6
+- Reviewed the current repository state, progress log, and open GitHub issues #52 through #68, then selected issue #52 as the next unblocked slice after #51.
+- Added a first-class `clusterState` gate to `verify-cluster` so malformed cluster IDs, pinned subgraph query failures, not-found snapshots, semantic owner/operator mismatches, missing accounting inputs, and Views baseline rejections now resolve to structured root-cause results instead of thrown or cascaded noise.
+- Added structured blocked downstream checks with `blockedBy` metadata, narrowed lag-aware downgrades to latest-head derived accounting checks, and aligned batch fallback semantics around `clusterState`.
+- Expanded regression coverage for malformed cluster IDs, not-found snapshots, semantic owner mismatches, baseline state rejection, and malformed discovered batch cluster IDs.
+- Verified the slice with `npx vitest run test/verify-cluster.test.ts test/verify-clusters.test.ts test/subgraph.test.ts`, `npm test`, and `npm run build`.

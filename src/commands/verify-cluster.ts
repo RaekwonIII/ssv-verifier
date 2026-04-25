@@ -2,6 +2,7 @@ import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
 import { jsonRpcRequest } from "../clients/json-rpc.js";
 import { fetchPinnedSubgraphClusterSnapshot } from "../clients/subgraph.js";
+import { parseClusterId } from "../domain/cluster-id.js";
 import { summarizeStatuses, type CheckStatus } from "../status.js";
 import {
   createViewsAdapter,
@@ -23,6 +24,7 @@ export type CheckClassification = "verified" | "mismatch" | "lag-affected" | "in
 
 export interface ClusterIdentityCheckResult {
   name:
+    | "clusterState"
     | "assetType"
     | "owner"
     | "operatorIds"
@@ -38,6 +40,7 @@ export interface ClusterIdentityCheckResult {
   detail: string;
   subgraphValue: string;
   viewsValue?: string;
+  blockedBy?: string[];
 }
 
 export interface VerifyClusterResult {
@@ -212,6 +215,7 @@ function createInconclusiveCheck(
   name: ClusterIdentityCheckResult["name"],
   subgraphValue: string,
   detail: string,
+  blockedBy?: string[],
 ): ClusterIdentityCheckResult {
   return {
     name,
@@ -219,7 +223,16 @@ function createInconclusiveCheck(
     classification: "inconclusive",
     subgraphValue,
     detail,
+    ...(blockedBy ? { blockedBy } : {}),
   };
+}
+
+function createBlockedCheck(
+  name: ClusterIdentityCheckResult["name"],
+  detail: string,
+  blockedBy: ClusterIdentityCheckResult["name"],
+): ClusterIdentityCheckResult {
+  return createInconclusiveCheck(name, "blocked", detail, [blockedBy]);
 }
 
 function createFreshness(indexedBlockNumber: bigint, chainHeadBlockNumber: bigint): SubgraphFreshness {
@@ -251,6 +264,13 @@ function applyFreshnessClassification(
   return checks.map((check) => {
     if (check.status === "inconclusive") {
       return check;
+    }
+
+    if (!["currentBalance", "burnRate", "liquidationCollateral", "liquidatable"].includes(check.name)) {
+      return {
+        ...check,
+        classification: check.status === "pass" ? "verified" : "mismatch",
+      };
     }
 
     if (check.status !== "fail") {
@@ -443,31 +463,67 @@ function formatFeeAsset(value: string | null): string {
   return value ?? "missing";
 }
 
-function createBlockedAccountingChecks(detail: string): ClusterIdentityCheckResult[] {
+function createBlockedAccountingChecks(
+  detail: string,
+  blockedBy: ClusterIdentityCheckResult["name"],
+): ClusterIdentityCheckResult[] {
   return [
-    createInconclusiveCheck("owner", "unknown", detail),
-    createInconclusiveCheck("operatorIds", "unknown", detail),
-    createInconclusiveCheck("validatorCount", "unknown", detail),
-    createInconclusiveCheck("active", "unknown", detail),
-    createInconclusiveCheck("currentBalance", "unknown", detail),
-    createInconclusiveCheck("burnRate", "unknown", detail),
-    createInconclusiveCheck("liquidationCollateral", "unknown", detail),
-    createInconclusiveCheck("liquidatable", "unknown", detail),
+    createBlockedCheck("assetType", detail, blockedBy),
+    createBlockedCheck("owner", detail, blockedBy),
+    createBlockedCheck("operatorIds", detail, blockedBy),
+    createBlockedCheck("validatorCount", detail, blockedBy),
+    createBlockedCheck("active", detail, blockedBy),
+    createBlockedCheck("currentBalance", detail, blockedBy),
+    createBlockedCheck("burnRate", detail, blockedBy),
+    createBlockedCheck("liquidationCollateral", detail, blockedBy),
+    createBlockedCheck("liquidatable", detail, blockedBy),
   ];
 }
 
-function createBlockedEthAccountingChecks(detail: string): ClusterIdentityCheckResult[] {
+function createBlockedEthAccountingChecks(
+  detail: string,
+  blockedBy: ClusterIdentityCheckResult["name"],
+): ClusterIdentityCheckResult[] {
   return [
-    createInconclusiveCheck("owner", "unknown", detail),
-    createInconclusiveCheck("operatorIds", "unknown", detail),
-    createInconclusiveCheck("validatorCount", "unknown", detail),
-    createInconclusiveCheck("active", "unknown", detail),
-    createInconclusiveCheck("effectiveBalance", "unknown", detail),
-    createInconclusiveCheck("currentBalance", "unknown", detail),
-    createInconclusiveCheck("burnRate", "unknown", detail),
-    createInconclusiveCheck("liquidationCollateral", "unknown", detail),
-    createInconclusiveCheck("liquidatable", "unknown", detail),
+    createBlockedCheck("assetType", detail, blockedBy),
+    createBlockedCheck("owner", detail, blockedBy),
+    createBlockedCheck("operatorIds", detail, blockedBy),
+    createBlockedCheck("validatorCount", detail, blockedBy),
+    createBlockedCheck("active", detail, blockedBy),
+    createBlockedCheck("effectiveBalance", detail, blockedBy),
+    createBlockedCheck("currentBalance", detail, blockedBy),
+    createBlockedCheck("burnRate", detail, blockedBy),
+    createBlockedCheck("liquidationCollateral", detail, blockedBy),
+    createBlockedCheck("liquidatable", detail, blockedBy),
   ];
+}
+
+function clusterChecksForAsset(asset: FeeAsset | null): ClusterIdentityCheckResult["name"][] {
+  return asset === "ETH"
+    ? ["assetType", "owner", "operatorIds", "validatorCount", "active", "effectiveBalance", "currentBalance", "burnRate", "liquidationCollateral", "liquidatable"]
+    : ["assetType", "owner", "operatorIds", "validatorCount", "active", "currentBalance", "burnRate", "liquidationCollateral", "liquidatable"];
+}
+
+function buildBlockedClusterResult(
+  network: SingleNetwork,
+  clusterId: string,
+  subgraphSource: "primary" | "fallback",
+  freshness: SubgraphFreshness,
+  clusterStateCheck: ClusterIdentityCheckResult,
+  asset: FeeAsset | null,
+): VerifyClusterResult {
+  const blockedChecks = clusterChecksForAsset(asset)
+    .map((name) => createBlockedCheck(name, `Skipped downstream cluster verification because clusterState was ${clusterStateCheck.status.toUpperCase()}`, "clusterState"));
+  const checks = [clusterStateCheck, ...blockedChecks];
+
+  return {
+    network,
+    clusterId,
+    subgraphSource,
+    freshness,
+    status: summarizeStatus(checks),
+    checks,
+  };
 }
 
 export async function verifyClusterIdentity(
@@ -482,12 +538,33 @@ export async function verifyClusterIdentity(
   const fetchFn = dependencies.fetchFn ?? fetch;
   const network = config.activeNetworks[0]!;
   const networkConfig = config.networks[network];
+  const parsedClusterId = (() => {
+    try {
+      return parseClusterId(clusterId);
+    } catch (error) {
+      return error instanceof Error ? error : new Error(String(error));
+    }
+  })();
   const chainHeadBlockPromise = jsonRpcRequest<string>(
     networkConfig.rpcUrl,
     "eth_blockNumber",
     [],
     fetchFn,
   ).then(hexToBigInt);
+  if (parsedClusterId instanceof Error) {
+    const chainHeadBlock = await chainHeadBlockPromise;
+    const freshness = createFreshness(0n, chainHeadBlock);
+
+    return buildBlockedClusterResult(
+      network,
+      clusterId,
+      "primary",
+      freshness,
+      createFailureCheck("clusterState", clusterId, `Cluster ID could not be parsed into a usable cluster state: ${parsedClusterId.message}`),
+      null,
+    );
+  }
+
   const subgraphAccounting = await fetchPinnedSubgraphClusterSnapshot(
     networkConfig.subgraphPrimaryUrl,
     networkConfig.subgraphFallbackUrl,
@@ -495,12 +572,112 @@ export async function verifyClusterIdentity(
     networkConfig.daoAddress,
     fetchFn,
   );
+
   if (subgraphAccounting.status === "query-failed") {
-    throw new Error(subgraphAccounting.detail);
+    const chainHeadBlock = await chainHeadBlockPromise;
+    const freshness = createFreshness(0n, chainHeadBlock);
+
+    return buildBlockedClusterResult(
+      network,
+      clusterId,
+      subgraphAccounting.source,
+      freshness,
+      createInconclusiveCheck(
+        "clusterState",
+        clusterId,
+        `Unable to fetch a usable pinned cluster snapshot: ${subgraphAccounting.detail}`,
+      ),
+      null,
+    );
   }
 
   if (subgraphAccounting.status === "not-found") {
-    throw new Error(`Cluster ${clusterId} was not found in the subgraph`);
+    const chainHeadBlock = await chainHeadBlockPromise;
+    const freshness = createFreshness(BigInt(subgraphAccounting.indexedBlockNumber), chainHeadBlock);
+
+    return buildBlockedClusterResult(
+      network,
+      clusterId,
+      subgraphAccounting.source,
+      freshness,
+      createFailureCheck(
+        "clusterState",
+        clusterId,
+        `Cluster ${clusterId} was not found in the subgraph at block ${subgraphAccounting.indexedBlockNumber}`,
+      ),
+      null,
+    );
+  }
+
+  const cluster = normalizeClusterValue(subgraphAccounting.cluster);
+  const chainHeadBlock = await chainHeadBlockPromise;
+  const freshness = createFreshness(BigInt(subgraphAccounting.indexedBlockNumber), chainHeadBlock);
+  const clusterAsset = isFeeAsset(cluster.feeAsset) ? cluster.feeAsset : null;
+  const fetchedClusterId = (() => {
+    try {
+      return parseClusterId(subgraphAccounting.cluster.id);
+    } catch (error) {
+      return error instanceof Error ? error : new Error(String(error));
+    }
+  })();
+
+  if (fetchedClusterId instanceof Error) {
+    return buildBlockedClusterResult(
+      network,
+      clusterId,
+      subgraphAccounting.source,
+      freshness,
+      createFailureCheck("clusterState", subgraphAccounting.cluster.id, `Fetched cluster id was not canonical: ${fetchedClusterId.message}`),
+      clusterAsset,
+    );
+  }
+
+  if (fetchedClusterId.canonicalId !== parsedClusterId.canonicalId) {
+    return buildBlockedClusterResult(
+      network,
+      subgraphAccounting.cluster.id,
+      subgraphAccounting.source,
+      freshness,
+      createFailureCheck(
+        "clusterState",
+        subgraphAccounting.cluster.id,
+        `Fetched cluster id ${subgraphAccounting.cluster.id} did not match the requested cluster ${parsedClusterId.canonicalId}`,
+        parsedClusterId.canonicalId,
+      ),
+      clusterAsset,
+    );
+  }
+
+  if (cluster.owner !== fetchedClusterId.ownerAddress) {
+    return buildBlockedClusterResult(
+      network,
+      cluster.id,
+      subgraphAccounting.source,
+      freshness,
+      createFailureCheck(
+        "clusterState",
+        cluster.owner,
+        "Fetched cluster owner did not match the owner encoded in the cluster id",
+        fetchedClusterId.ownerAddress,
+      ),
+      clusterAsset,
+    );
+  }
+
+  if (formatOperatorIds(cluster.operatorIds) !== formatOperatorIds(fetchedClusterId.operatorIds)) {
+    return buildBlockedClusterResult(
+      network,
+      cluster.id,
+      subgraphAccounting.source,
+      freshness,
+      createFailureCheck(
+        "clusterState",
+        formatOperatorIds(cluster.operatorIds),
+        "Fetched cluster operatorIds did not match the operator set encoded in the cluster id",
+        formatOperatorIds(fetchedClusterId.operatorIds),
+      ),
+      clusterAsset,
+    );
   }
 
   const missingOperatorIds = subgraphAccounting.cluster.operatorIds.filter(
@@ -508,22 +685,41 @@ export async function verifyClusterIdentity(
   );
 
   if (missingOperatorIds.length > 0) {
-    throw new Error(`Subgraph response was missing operators: ${missingOperatorIds.join(", ")}`);
+    return buildBlockedClusterResult(
+      network,
+      cluster.id,
+      subgraphAccounting.source,
+      freshness,
+      createInconclusiveCheck(
+        "clusterState",
+        cluster.id,
+        `Subgraph response was missing operators required to build a usable cluster snapshot: ${missingOperatorIds.join(", ")}`,
+      ),
+      clusterAsset,
+    );
   }
 
   if (!subgraphAccounting.daoValues) {
-    throw new Error(`Subgraph response did not include DAO values for ${networkConfig.daoAddress}`);
+    return buildBlockedClusterResult(
+      network,
+      cluster.id,
+      subgraphAccounting.source,
+      freshness,
+      createInconclusiveCheck(
+        "clusterState",
+        cluster.id,
+        `Subgraph response did not include DAO values for ${networkConfig.daoAddress}`,
+      ),
+      clusterAsset,
+    );
   }
 
-  const cluster = normalizeClusterValue(subgraphAccounting.cluster);
   const operators = subgraphAccounting.operators.map(normalizeOperatorValue);
   const daoValues = normalizeDaoValues(subgraphAccounting.daoValues);
-  const chainHeadBlock = await chainHeadBlockPromise;
-  const freshness = createFreshness(BigInt(subgraphAccounting.indexedBlockNumber), chainHeadBlock);
   const views = createViewsAdapter(networkConfig.rpcUrl, networkConfig.viewsAddress, fetchFn);
   const verificationBlockTag = `0x${BigInt(subgraphAccounting.indexedBlockNumber).toString(16)}`;
   const onChainAsset = await views.getClusterAssetType(cluster.owner, cluster.operatorIds, verificationBlockTag);
-  const subgraphAsset = isFeeAsset(cluster.feeAsset) ? cluster.feeAsset : null;
+  const subgraphAsset = clusterAsset;
   const assetTypeCheck = onChainAsset.status === "revert"
     ? createInconclusiveCheck(
         "assetType",
@@ -548,13 +744,25 @@ export async function verifyClusterIdentity(
   const blockedChecks = subgraphAsset === "ETH"
     ? createBlockedEthAccountingChecks(
         `Skipped downstream cluster verification because assetType was ${assetTypeCheck.status.toUpperCase()}`,
+        "assetType",
       )
     : createBlockedAccountingChecks(
         `Skipped downstream cluster verification because assetType was ${assetTypeCheck.status.toUpperCase()}`,
+        "assetType",
       );
 
   const checks = assetTypeCheck.status !== "pass"
-    ? [assetTypeCheck, ...blockedChecks]
+    ? [
+        {
+          name: "clusterState",
+          status: "pass",
+          classification: "verified",
+          subgraphValue: cluster.id,
+          detail: "Pinned subgraph cluster snapshot was usable for verification",
+        } satisfies ClusterIdentityCheckResult,
+        assetTypeCheck,
+        ...blockedChecks.filter((check) => check.name !== "assetType"),
+      ]
     : await (() => {
         const validationAsset: FeeAsset = subgraphAsset!;
         const baselinePromise = views.validateClusterState(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
@@ -562,24 +770,37 @@ export async function verifyClusterIdentity(
         const selectedDaoValues = selectDaoAccounting(validationAsset, daoValues);
 
         return baselinePromise.then((baseline) => {
-          const baselineFailure = `Views rejected the subgraph cluster state on the ${validationAsset} surface: ${baseline.detail}`;
+          const clusterStateCheck = baseline.status === "revert"
+            ? createFailureCheck(
+                "clusterState",
+                cluster.id,
+                `Views rejected the subgraph cluster state on the ${validationAsset} surface: ${baseline.detail}`,
+              )
+            : {
+                name: "clusterState",
+                status: "pass",
+                classification: "verified",
+                subgraphValue: cluster.id,
+                detail: `Pinned subgraph cluster snapshot was usable on the ${validationAsset} Views surface`,
+              } satisfies ClusterIdentityCheckResult;
 
           if (baseline.status === "revert") {
             return [
               assetTypeCheck,
-              createFailureCheck("owner", cluster.owner, baselineFailure),
-              createFailureCheck("operatorIds", formatOperatorIds(cluster.operatorIds), baselineFailure),
-              createFailureCheck("validatorCount", String(cluster.validatorCount), baselineFailure),
-              createFailureCheck("active", String(cluster.active), baselineFailure),
-              ...(validationAsset === "ETH" ? [createFailureCheck("effectiveBalance", String(cluster.effectiveBalance ?? "missing"), baselineFailure)] : []),
-              createFailureCheck("currentBalance", cluster.balance.toString(), baselineFailure),
-              createFailureCheck("burnRate", "unknown", baselineFailure),
-              createFailureCheck("liquidationCollateral", "unknown", baselineFailure),
-              createFailureCheck("liquidatable", "unknown", baselineFailure),
+              clusterStateCheck,
+              ...(validationAsset === "ETH"
+                ? createBlockedEthAccountingChecks(
+                    `Skipped downstream cluster verification because clusterState was ${clusterStateCheck.status.toUpperCase()}`,
+                    "clusterState",
+                  )
+                : createBlockedAccountingChecks(
+                    `Skipped downstream cluster verification because clusterState was ${clusterStateCheck.status.toUpperCase()}`,
+                    "clusterState",
+                  )).filter((check) => check.name !== "assetType"),
             ];
           }
 
-          const baseChecks = [assetTypeCheck];
+          const baseChecks = [assetTypeCheck, clusterStateCheck];
           const identityChecksPromise = Promise.all([
             runMutationCheck("owner", cluster.owner, () =>
               views.validateClusterState(validationAsset, mutateAddress(cluster.owner), cluster.operatorIds, toViewsClusterState(cluster))
@@ -791,11 +1012,12 @@ export function renderVerifyClusterSummary(result: VerifyClusterResult): string 
     `subgraph freshness: ${result.freshness.status} (indexed=${result.freshness.indexedBlockNumber}, chainHead=${result.freshness.chainHeadBlockNumber}, lag=${result.freshness.lagBlocks})`,
   ];
 
-  for (const check of result.checks) {
-    const values = check.viewsValue
-      ? `expected=${check.subgraphValue}; views=${check.viewsValue}`
-      : `subgraph=${check.subgraphValue}`;
-    lines.push(`- ${check.name}: ${check.status.toUpperCase()} [${check.classification}] (${values}; ${check.detail})`);
+    for (const check of result.checks) {
+      const values = check.viewsValue
+        ? `expected=${check.subgraphValue}; views=${check.viewsValue}`
+        : `subgraph=${check.subgraphValue}`;
+    const blockedBy = check.blockedBy?.length ? `; blockedBy=${check.blockedBy.join(",")}` : "";
+    lines.push(`- ${check.name}: ${check.status.toUpperCase()} [${check.classification}] (${values}; ${check.detail}${blockedBy})`);
   }
 
   return lines.join("\n");
