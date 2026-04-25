@@ -84,11 +84,11 @@ describe("createViewsAdapter", () => {
       asset: "ETH",
       rawVersion: 1n,
     });
-    await expect(adapter.getClusterBalance("ETH", owner, operatorIds, cluster)).resolves.toBe(111n);
+    await expect(adapter.getClusterBalance("ETH", owner, operatorIds, cluster, "0x7b")).resolves.toBe(111n);
     await expect(adapter.getClusterBalance("SSV", owner, operatorIds, cluster)).resolves.toBe(222n);
     await expect(adapter.getOperatorFee("ETH", 17n)).resolves.toBe(333n);
     await expect(adapter.getOperatorFee("SSV", 17n)).resolves.toBe(444n);
-    await expect(adapter.getNetworkFee("ETH")).resolves.toBe(555n);
+    await expect(adapter.getNetworkFee("ETH", "0x7b")).resolves.toBe(555n);
     await expect(adapter.getNetworkFee("SSV")).resolves.toBe(666n);
 
     expect(calledMethods).toEqual([
@@ -100,7 +100,7 @@ describe("createViewsAdapter", () => {
       "getNetworkFee",
       "getNetworkFeeSSV",
     ]);
-    expect(calledBlockTags).toEqual(["0x7b", "latest", "latest", "latest", "latest", "latest", "latest"]);
+    expect(calledBlockTags).toEqual(["0x7b", "0x7b", "latest", "latest", "latest", "0x7b", "latest"]);
   });
 
   it("keeps the existing legacy helpers on the SSV surface", async () => {

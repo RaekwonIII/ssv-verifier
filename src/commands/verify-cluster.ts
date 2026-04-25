@@ -13,6 +13,7 @@ import { summarizeStatuses, type CheckStatus } from "../status.js";
 import {
   createViewsAdapter,
   type FeeAsset,
+  type ViewsAdapter,
   type ViewsClusterState,
 } from "../clients/views.js";
 
@@ -46,6 +47,7 @@ export interface ClusterIdentityCheckResult {
   subgraphValue: string;
   viewsValue?: string;
   blockedBy?: string[];
+  diagnostics?: ViewsReadFailureDiagnostic[];
 }
 
 export interface VerifyClusterResult {
@@ -59,6 +61,13 @@ export interface VerifyClusterResult {
 
 export interface VerifyClusterDependencies {
   fetchFn?: typeof fetch;
+}
+
+export interface ViewsReadFailureDiagnostic {
+  kind: "viewsReadFailed";
+  read: "getBalance" | "getBurnRate" | "isLiquidatable" | "getLiquidationThresholdPeriod" | "getMinimumLiquidationCollateral";
+  blockTag: string;
+  message: string;
 }
 
 interface NormalizedCluster {
@@ -96,6 +105,10 @@ interface NormalizedDaoValues {
   liquidationThresholdSSV: bigint;
   minimumLiquidationCollateralSSV: bigint;
 }
+
+type SettledViewsRead<T> =
+  | { status: "success"; value: T }
+  | { status: "failed"; diagnostic: ViewsReadFailureDiagnostic };
 
 function normalizeClusterValue(cluster: {
   id: string;
@@ -221,6 +234,7 @@ function createInconclusiveCheck(
   subgraphValue: string,
   detail: string,
   blockedBy?: string[],
+  diagnostics?: ViewsReadFailureDiagnostic[],
 ): ClusterIdentityCheckResult {
   return {
     name,
@@ -229,6 +243,7 @@ function createInconclusiveCheck(
     subgraphValue,
     detail,
     ...(blockedBy ? { blockedBy } : {}),
+    ...(diagnostics ? { diagnostics } : {}),
   };
 }
 
@@ -343,6 +358,138 @@ function selectDaoAccounting(
         liquidationThreshold: daoValues.liquidationThresholdSSV,
         minimumLiquidationCollateral: daoValues.minimumLiquidationCollateralSSV,
       };
+}
+
+async function buildPinnedDerivedChecks(args: {
+  views: ViewsAdapter;
+  asset: FeeAsset;
+  cluster: NormalizedCluster;
+  operators: Array<Pick<NormalizedOperator, "fee" | "feeIndex" | "feeIndexBlockNumber">>;
+  daoValues: Pick<NormalizedDaoValues, "networkFee" | "networkFeeIndex" | "networkFeeIndexBlockNumber" | "liquidationThreshold" | "minimumLiquidationCollateral">;
+  baseChecks: ClusterIdentityCheckResult[];
+  inputChecks: ClusterIdentityCheckResult[];
+  identityChecksPromise: Promise<ClusterIdentityCheckResult[]>;
+  verificationBlockNumber: bigint;
+  verificationBlockTag: string;
+}): Promise<ClusterIdentityCheckResult[]> {
+  const {
+    views,
+    asset,
+    cluster,
+    operators,
+    daoValues,
+    baseChecks,
+    inputChecks,
+    identityChecksPromise,
+    verificationBlockNumber,
+    verificationBlockTag,
+  } = args;
+  const viewsClusterState = toViewsClusterState(cluster);
+  const derivedBalance = deriveCurrentClusterBalance({ ...cluster, feeAsset: asset }, operators, daoValues, verificationBlockNumber);
+  const derivedBurnRate = deriveClusterBurnRate({ ...cluster, feeAsset: asset }, operators, daoValues);
+  const derivedLiquidationCollateral = deriveLiquidationCollateral(derivedBurnRate.value, daoValues);
+  const expectedLiquidatable = deriveLiquidatableStatus(cluster.active, derivedBalance.value, derivedLiquidationCollateral.value);
+
+  const [
+    identityChecks,
+    viewsBalance,
+    viewsBurnRate,
+    viewsLiquidatable,
+    viewsLiquidationThreshold,
+    viewsMinimumCollateral,
+  ] = await Promise.all([
+    identityChecksPromise,
+    settleViewsRead(
+      "getBalance",
+      verificationBlockTag,
+      views.getClusterBalance(asset, cluster.owner, cluster.operatorIds, viewsClusterState, verificationBlockTag),
+    ),
+    settleViewsRead(
+      "getBurnRate",
+      verificationBlockTag,
+      views.getClusterBurnRate(asset, cluster.owner, cluster.operatorIds, viewsClusterState, verificationBlockTag),
+    ),
+    settleViewsRead(
+      "isLiquidatable",
+      verificationBlockTag,
+      views.getClusterLiquidatable(asset, cluster.owner, cluster.operatorIds, viewsClusterState, verificationBlockTag),
+    ),
+    settleViewsRead(
+      "getLiquidationThresholdPeriod",
+      verificationBlockTag,
+      views.getLiquidationThreshold(asset, verificationBlockTag),
+    ),
+    settleViewsRead(
+      "getMinimumLiquidationCollateral",
+      verificationBlockTag,
+      views.getMinimumLiquidationCollateral(asset, verificationBlockTag),
+    ),
+  ]);
+
+  const liquidationDiagnostics = collectViewsReadDiagnostics([
+    viewsBurnRate,
+    viewsLiquidationThreshold,
+    viewsMinimumCollateral,
+  ]);
+
+  return [
+    ...baseChecks,
+    ...identityChecks,
+    ...inputChecks,
+    viewsBalance.status === "success"
+      ? createDerivedComparisonCheck(
+          "currentBalance",
+          derivedBalance.value.toString(),
+          viewsBalance.value.toString(),
+          derivedBalance.value === viewsBalance.value,
+          `Derived balance matched pinned Views at block ${verificationBlockNumber.toString()}`,
+          `Derived balance did not match pinned Views at block ${verificationBlockNumber.toString()}`,
+        )
+      : createViewsReadFailedCheck("currentBalance", derivedBalance.value.toString(), [viewsBalance.diagnostic]),
+    viewsBurnRate.status === "success"
+      ? createDerivedComparisonCheck(
+          "burnRate",
+          derivedBurnRate.value.toString(),
+          viewsBurnRate.value.toString(),
+          derivedBurnRate.value === viewsBurnRate.value,
+          `Derived burn rate matched pinned Views at block ${verificationBlockNumber.toString()}`,
+          `Derived burn rate did not match pinned Views at block ${verificationBlockNumber.toString()}`,
+        )
+      : createViewsReadFailedCheck("burnRate", derivedBurnRate.value.toString(), [viewsBurnRate.diagnostic]),
+    isSuccessfulViewsRead(viewsBurnRate)
+      && isSuccessfulViewsRead(viewsLiquidationThreshold)
+      && isSuccessfulViewsRead(viewsMinimumCollateral)
+      ? (() => {
+          const viewsLiquidationCollateral = deriveLiquidationCollateral(viewsBurnRate.value, {
+            liquidationThreshold: viewsLiquidationThreshold.value,
+            minimumLiquidationCollateral: viewsMinimumCollateral.value,
+          });
+
+          return createDerivedComparisonCheck(
+            "liquidationCollateral",
+            derivedLiquidationCollateral.value.toString(),
+            viewsLiquidationCollateral.value.toString(),
+            derivedLiquidationCollateral.value === viewsLiquidationCollateral.value,
+            `Derived liquidation collateral matched pinned Views inputs at block ${verificationBlockNumber.toString()}`,
+            `Derived liquidation collateral did not match pinned Views inputs at block ${verificationBlockNumber.toString()}`,
+          );
+        })()
+      : createViewsReadFailedCheck(
+          "liquidationCollateral",
+          derivedLiquidationCollateral.value.toString(),
+          liquidationDiagnostics,
+        ),
+    viewsLiquidatable.status === "success"
+      ? createDerivedComparisonCheck(
+          "liquidatable",
+          String(expectedLiquidatable.value),
+          String(viewsLiquidatable.value),
+          expectedLiquidatable.value === viewsLiquidatable.value,
+          `Derived liquidatable status matched pinned Views at block ${verificationBlockNumber.toString()} (balance=${derivedBalance.value.toString()}, collateral=${derivedLiquidationCollateral.value.toString()})`,
+          `Derived liquidatable status did not match pinned Views at block ${verificationBlockNumber.toString()} (balance=${derivedBalance.value.toString()}, collateral=${derivedLiquidationCollateral.value.toString()})`,
+        )
+      : createViewsReadFailedCheck("liquidatable", String(expectedLiquidatable.value), [viewsLiquidatable.diagnostic]),
+  ];
 }
 
 function hexToBigInt(value: string): bigint {
@@ -467,6 +614,73 @@ function isEmptyCluster(cluster: Pick<NormalizedCluster, "validatorCount">): boo
 
 function isPresentCheck(check: ClusterIdentityCheckResult | null): check is ClusterIdentityCheckResult {
   return check !== null;
+}
+
+function isSuccessfulViewsRead<T>(result: SettledViewsRead<T>): result is { status: "success"; value: T } {
+  return result.status === "success";
+}
+
+async function settleViewsRead<T>(
+  read: ViewsReadFailureDiagnostic["read"],
+  blockTag: string,
+  reader: Promise<T>,
+): Promise<SettledViewsRead<T>> {
+  try {
+    return {
+      status: "success",
+      value: await reader,
+    };
+  } catch (error) {
+    return {
+      status: "failed",
+      diagnostic: {
+        kind: "viewsReadFailed",
+        read,
+        blockTag,
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+function collectViewsReadDiagnostics(
+  results: ReadonlyArray<SettledViewsRead<unknown>>,
+): ViewsReadFailureDiagnostic[] {
+  return results.flatMap((result) => result.status === "failed" ? [result.diagnostic] : []);
+}
+
+function createViewsReadFailedCheck(
+  name: ClusterIdentityCheckResult["name"],
+  subgraphValue: string,
+  diagnostics: ViewsReadFailureDiagnostic[],
+): ClusterIdentityCheckResult {
+  const diagnosticSummary = diagnostics.map((diagnostic) => `${diagnostic.read}: ${diagnostic.message}`).join("; ");
+
+  return createInconclusiveCheck(
+    name,
+    subgraphValue,
+    `Unable to read pinned Views inputs for ${name}: ${diagnosticSummary}`,
+    undefined,
+    diagnostics,
+  );
+}
+
+function createDerivedComparisonCheck(
+  name: Extract<ClusterIdentityCheckResult["name"], "currentBalance" | "burnRate" | "liquidationCollateral" | "liquidatable">,
+  subgraphValue: string,
+  viewsValue: string,
+  matches: boolean,
+  passDetail: string,
+  failDetail: string,
+): ClusterIdentityCheckResult {
+  return {
+    name,
+    status: matches ? "pass" : "fail",
+    classification: matches ? "verified" : "mismatch",
+    subgraphValue,
+    viewsValue,
+    detail: matches ? passDetail : failDetail,
+  };
 }
 
 function parseUnsignedDecimalValue(value: string): bigint | null {
@@ -798,7 +1012,8 @@ export async function verifyClusterIdentity(
   }
 
   const views = createViewsAdapter(networkConfig.rpcUrl, networkConfig.viewsAddress, fetchFn);
-  const verificationBlockTag = `0x${BigInt(subgraphAccounting.indexedBlockNumber).toString(16)}`;
+  const verificationBlockNumber = BigInt(subgraphAccounting.indexedBlockNumber);
+  const verificationBlockTag = `0x${verificationBlockNumber.toString(16)}`;
   const onChainAsset = await views.getClusterAssetType(cluster.owner, cluster.operatorIds, verificationBlockTag);
   const subgraphAsset = clusterAsset;
   const assetTypeCheck = onChainAsset.status === "revert"
@@ -944,80 +1159,17 @@ export async function verifyClusterIdentity(
             const selectedOperators = emptyCluster ? [] : selectOperatorAccounting(validationAsset, operators);
             const selectedDaoValues = selectDaoAccounting(validationAsset, daoValues);
 
-            const viewsBalancePromise = views.getClusterBalance(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
-            const viewsBurnRatePromise = views.getClusterBurnRate(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
-            const viewsLiquidatablePromise = views.getClusterLiquidatable(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
-            const viewsLiquidationThresholdPromise = views.getLiquidationThreshold(validationAsset);
-            const viewsMinimumCollateralPromise = views.getMinimumLiquidationCollateral(validationAsset);
-
-            return Promise.all([
+            return buildPinnedDerivedChecks({
+              views,
+              asset: validationAsset,
+              cluster,
+              operators: selectedOperators,
+              daoValues: selectedDaoValues,
+              baseChecks,
+              inputChecks: [daoDataCheck, operatorDataCheck, effectiveBalanceCheck].filter(isPresentCheck),
               identityChecksPromise,
-              viewsBalancePromise,
-              viewsBurnRatePromise,
-              viewsLiquidatablePromise,
-              viewsLiquidationThresholdPromise,
-              viewsMinimumCollateralPromise,
-            ]).then(([
-              identityChecks,
-              viewsBalance,
-              viewsBurnRate,
-              viewsLiquidatable,
-              viewsLiquidationThreshold,
-              viewsMinimumCollateral,
-            ]) => {
-              const derivedBalance = deriveCurrentClusterBalance({ ...cluster, feeAsset: validationAsset }, selectedOperators, selectedDaoValues, chainHeadBlock);
-              const derivedBurnRate = deriveClusterBurnRate({ ...cluster, feeAsset: validationAsset }, selectedOperators, selectedDaoValues);
-              const subgraphLiquidationCollateral = deriveLiquidationCollateral(derivedBurnRate.value, selectedDaoValues);
-              const viewsLiquidationCollateral = deriveLiquidationCollateral(viewsBurnRate, {
-                liquidationThreshold: viewsLiquidationThreshold,
-                minimumLiquidationCollateral: viewsMinimumCollateral,
-              });
-              const expectedLiquidatable = deriveLiquidatableStatus(cluster.active, derivedBalance.value, subgraphLiquidationCollateral.value);
-
-              return [
-                ...baseChecks,
-                ...identityChecks,
-                daoDataCheck,
-                ...[operatorDataCheck, effectiveBalanceCheck].filter(isPresentCheck),
-                {
-                  name: "currentBalance",
-                  status: derivedBalance.value === viewsBalance ? "pass" : "fail",
-                  classification: derivedBalance.value === viewsBalance ? "verified" : "mismatch",
-                  subgraphValue: derivedBalance.value.toString(),
-                  viewsValue: viewsBalance.toString(),
-                  detail: derivedBalance.value === viewsBalance
-                    ? `Derived balance matched Views at block ${chainHeadBlock.toString()}`
-                    : `Derived balance did not match Views at block ${chainHeadBlock.toString()}`,
-                } satisfies ClusterIdentityCheckResult,
-                {
-                  name: "burnRate",
-                  status: derivedBurnRate.value === viewsBurnRate ? "pass" : "fail",
-                  classification: derivedBurnRate.value === viewsBurnRate ? "verified" : "mismatch",
-                  subgraphValue: derivedBurnRate.value.toString(),
-                  viewsValue: viewsBurnRate.toString(),
-                  detail: derivedBurnRate.value === viewsBurnRate ? "Derived burn rate matched Views" : "Derived burn rate did not match Views",
-                } satisfies ClusterIdentityCheckResult,
-                {
-                  name: "liquidationCollateral",
-                  status: subgraphLiquidationCollateral.value === viewsLiquidationCollateral.value ? "pass" : "fail",
-                  classification: subgraphLiquidationCollateral.value === viewsLiquidationCollateral.value ? "verified" : "mismatch",
-                  subgraphValue: subgraphLiquidationCollateral.value.toString(),
-                  viewsValue: viewsLiquidationCollateral.value.toString(),
-                  detail: subgraphLiquidationCollateral.value === viewsLiquidationCollateral.value
-                    ? "Derived liquidation collateral matched Views-side collateral inputs"
-                    : "Derived liquidation collateral did not match Views-side collateral inputs",
-                } satisfies ClusterIdentityCheckResult,
-                {
-                  name: "liquidatable",
-                  status: expectedLiquidatable.value === viewsLiquidatable ? "pass" : "fail",
-                  classification: expectedLiquidatable.value === viewsLiquidatable ? "verified" : "mismatch",
-                  subgraphValue: String(expectedLiquidatable.value),
-                  viewsValue: String(viewsLiquidatable),
-                  detail: expectedLiquidatable.value === viewsLiquidatable
-                    ? `Derived liquidatable status matched Views at block ${chainHeadBlock.toString()} (balance=${derivedBalance.value.toString()}, collateral=${subgraphLiquidationCollateral.value.toString()})`
-                    : `Derived liquidatable status did not match Views at block ${chainHeadBlock.toString()} (balance=${derivedBalance.value.toString()}, collateral=${subgraphLiquidationCollateral.value.toString()})`,
-                } satisfies ClusterIdentityCheckResult,
-              ];
+              verificationBlockNumber,
+              verificationBlockTag,
             });
           }
 
@@ -1039,80 +1191,17 @@ export async function verifyClusterIdentity(
           const selectedOperators = emptyCluster ? [] : selectOperatorAccounting(validationAsset, operators);
           const selectedDaoValues = selectDaoAccounting(validationAsset, daoValues);
 
-          const viewsBalancePromise = views.getClusterBalance(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
-          const viewsBurnRatePromise = views.getClusterBurnRate(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
-          const viewsLiquidatablePromise = views.getClusterLiquidatable(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
-          const viewsLiquidationThresholdPromise = views.getLiquidationThreshold(validationAsset);
-          const viewsMinimumCollateralPromise = views.getMinimumLiquidationCollateral(validationAsset);
-
-          return Promise.all([
+          return buildPinnedDerivedChecks({
+            views,
+            asset: validationAsset,
+            cluster,
+            operators: selectedOperators,
+            daoValues: selectedDaoValues,
+            baseChecks,
+            inputChecks: [daoDataCheck, operatorDataCheck].filter(isPresentCheck),
             identityChecksPromise,
-            viewsBalancePromise,
-            viewsBurnRatePromise,
-            viewsLiquidatablePromise,
-            viewsLiquidationThresholdPromise,
-            viewsMinimumCollateralPromise,
-          ]).then(([
-            identityChecks,
-            viewsBalance,
-            viewsBurnRate,
-            viewsLiquidatable,
-            viewsLiquidationThreshold,
-            viewsMinimumCollateral,
-          ]) => {
-            const derivedBalance = deriveCurrentClusterBalance({ ...cluster, feeAsset: validationAsset }, selectedOperators, selectedDaoValues, chainHeadBlock);
-            const derivedBurnRate = deriveClusterBurnRate({ ...cluster, feeAsset: validationAsset }, selectedOperators, selectedDaoValues);
-            const subgraphLiquidationCollateral = deriveLiquidationCollateral(derivedBurnRate.value, selectedDaoValues);
-            const viewsLiquidationCollateral = deriveLiquidationCollateral(viewsBurnRate, {
-              liquidationThreshold: viewsLiquidationThreshold,
-              minimumLiquidationCollateral: viewsMinimumCollateral,
-            });
-            const expectedLiquidatable = deriveLiquidatableStatus(cluster.active, derivedBalance.value, subgraphLiquidationCollateral.value);
-
-            return [
-                ...baseChecks,
-                ...identityChecks,
-                daoDataCheck,
-                ...[operatorDataCheck].filter(isPresentCheck),
-                {
-                  name: "currentBalance",
-                status: derivedBalance.value === viewsBalance ? "pass" : "fail",
-                classification: derivedBalance.value === viewsBalance ? "verified" : "mismatch",
-                subgraphValue: derivedBalance.value.toString(),
-                viewsValue: viewsBalance.toString(),
-                detail: derivedBalance.value === viewsBalance
-                  ? `Derived balance matched Views at block ${chainHeadBlock.toString()}`
-                  : `Derived balance did not match Views at block ${chainHeadBlock.toString()}`,
-              } satisfies ClusterIdentityCheckResult,
-              {
-                name: "burnRate",
-                status: derivedBurnRate.value === viewsBurnRate ? "pass" : "fail",
-                classification: derivedBurnRate.value === viewsBurnRate ? "verified" : "mismatch",
-                subgraphValue: derivedBurnRate.value.toString(),
-                viewsValue: viewsBurnRate.toString(),
-                detail: derivedBurnRate.value === viewsBurnRate ? "Derived burn rate matched Views" : "Derived burn rate did not match Views",
-              } satisfies ClusterIdentityCheckResult,
-              {
-                name: "liquidationCollateral",
-                status: subgraphLiquidationCollateral.value === viewsLiquidationCollateral.value ? "pass" : "fail",
-                classification: subgraphLiquidationCollateral.value === viewsLiquidationCollateral.value ? "verified" : "mismatch",
-                subgraphValue: subgraphLiquidationCollateral.value.toString(),
-                viewsValue: viewsLiquidationCollateral.value.toString(),
-                detail: subgraphLiquidationCollateral.value === viewsLiquidationCollateral.value
-                  ? "Derived liquidation collateral matched Views-side collateral inputs"
-                  : "Derived liquidation collateral did not match Views-side collateral inputs",
-              } satisfies ClusterIdentityCheckResult,
-              {
-                name: "liquidatable",
-                status: expectedLiquidatable.value === viewsLiquidatable ? "pass" : "fail",
-                classification: expectedLiquidatable.value === viewsLiquidatable ? "verified" : "mismatch",
-                subgraphValue: String(expectedLiquidatable.value),
-                viewsValue: String(viewsLiquidatable),
-                detail: expectedLiquidatable.value === viewsLiquidatable
-                  ? `Derived liquidatable status matched Views at block ${chainHeadBlock.toString()} (balance=${viewsBalance.toString()}, collateral=${subgraphLiquidationCollateral.value.toString()})`
-                  : `Derived liquidatable status did not match Views at block ${chainHeadBlock.toString()} (balance=${viewsBalance.toString()}, collateral=${subgraphLiquidationCollateral.value.toString()})`,
-              } satisfies ClusterIdentityCheckResult,
-            ];
+            verificationBlockNumber,
+            verificationBlockTag,
           });
         });
       })();
