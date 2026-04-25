@@ -112,3 +112,10 @@
 - Tightened CLI parsing so `verify-cluster` rejects `--network both`, and command-specific `--cluster` and `--operator` flags now fail fast when used with the wrong command.
 - Added regression coverage for canonical cluster ID parsing plus malformed owner, operator count, operator formatting, ordering, uniqueness, and irrelevant CLI flag combinations.
 - Verified the slice with `npx vitest run test/verify-cluster.test.ts test/network-selection.test.ts`, `npm test`, and `npm run build`.
+2026-04-25 Iteration 4
+- Reviewed the current repository state, progress log, and all open GitHub issues #48 and #50 through #68, then selected issue #50 as the next unblocked slice after #49.
+- Created branch `ralph/issue-50-pinned-cluster-fetcher` from the local `#49` tip.
+- Added a structured pinned cluster fetch path that loads `_meta.block.number` and the target cluster snapshot together, keeps primary/fallback source tracking, and returns explicit `success`, `not-found`, or `query-failed` outcomes instead of relying on exceptions for expected cases.
+- Updated cluster verification to consume the new pinned fetch result while preserving the existing higher-level command behavior until the follow-up `clusterState` rewrite lands.
+- Added focused regression coverage for pinned fetch success, not-found with verification-block context, fallback success, and all-sources query failure.
+- Verified the slice with `npx vitest run test/subgraph.test.ts test/verify-cluster.test.ts test/verify-cluster-fixtures.test.ts`, `npm test`, and `npm run build`.
