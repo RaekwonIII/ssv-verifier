@@ -119,3 +119,10 @@
 - Updated cluster verification to consume the new pinned fetch result while preserving the existing higher-level command behavior until the follow-up `clusterState` rewrite lands.
 - Added focused regression coverage for pinned fetch success, not-found with verification-block context, fallback success, and all-sources query failure.
 - Verified the slice with `npx vitest run test/subgraph.test.ts test/verify-cluster.test.ts test/verify-cluster-fixtures.test.ts`, `npm test`, and `npm run build`.
+2026-04-25 Iteration 5
+- Reviewed the current repository state, progress log, the open GitHub PRD issue #48, and open implementation issues #51 through #68, then selected issue #51 as the next unblocked slice after #50.
+- Created branch `ralph/issue-51-pinned-asset-type` from the local `#50` tip.
+- Refreshed the local Views ABI and client to support direct `getClusterAssetType(address,uint64[])` reads at an explicit block tag, returning structured success or revert results instead of inferring asset type from state-validation side effects.
+- Updated `verify-cluster` to read the on-chain asset type at the pinned subgraph verification block, fail cleanly on invalid subgraph or unsupported on-chain asset values, and block downstream cluster checks whenever the asset gate is non-passing.
+- Expanded Views, cluster, and fixture regression coverage for the new pinned asset-type read path, the revised call order, and the blocked downstream behavior.
+- Verified the slice with `npx vitest run test/views.test.ts test/verify-cluster.test.ts test/subgraph.test.ts`, `npm test`, and `npm run build`.

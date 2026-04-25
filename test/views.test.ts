@@ -23,6 +23,7 @@ const cluster: ViewsClusterState = {
 
 function createViewsFetchMock() {
   const calledMethods: string[] = [];
+  const calledBlockTags: string[] = [];
   const fetchFn: typeof fetch = async (_input, init) => {
     const body = JSON.parse(String(init?.body)) as { method?: string; params?: Array<{ data?: string }> };
 
@@ -31,6 +32,7 @@ function createViewsFetchMock() {
     }
 
     const data = body.params?.[0]?.data;
+    const blockTag = body.params?.[1];
 
     if (!data) {
       throw new Error("Missing eth_call data payload");
@@ -43,6 +45,7 @@ function createViewsFetchMock() {
     }
 
     calledMethods.push(transaction.name);
+    calledBlockTags.push(typeof blockTag === "string" ? blockTag : "missing");
 
     const result = (() => {
       switch (transaction.name) {
@@ -50,6 +53,8 @@ function createViewsFetchMock() {
           return viewsInterface.encodeFunctionResult("getBalance", [111n]);
         case "getBalanceSSV":
           return viewsInterface.encodeFunctionResult("getBalanceSSV", [222n]);
+        case "getClusterAssetType":
+          return viewsInterface.encodeFunctionResult("getClusterAssetType", [1n]);
         case "getOperatorFee":
           return viewsInterface.encodeFunctionResult("getOperatorFee", [333n]);
         case "getOperatorFeeSSV":
@@ -66,14 +71,19 @@ function createViewsFetchMock() {
     return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }), { status: 200 });
   };
 
-  return { fetchFn, calledMethods };
+  return { fetchFn, calledMethods, calledBlockTags };
 }
 
 describe("createViewsAdapter", () => {
   it("selects ETH or SSV views methods by asset", async () => {
-    const { fetchFn, calledMethods } = createViewsFetchMock();
+    const { fetchFn, calledMethods, calledBlockTags } = createViewsFetchMock();
     const adapter = createViewsAdapter("https://hoodi.example", "0x0000000000000000000000000000000000000001", fetchFn);
 
+    await expect(adapter.getClusterAssetType(owner, operatorIds, "0x7b")).resolves.toMatchObject({
+      status: "success",
+      asset: "ETH",
+      rawVersion: 1n,
+    });
     await expect(adapter.getClusterBalance("ETH", owner, operatorIds, cluster)).resolves.toBe(111n);
     await expect(adapter.getClusterBalance("SSV", owner, operatorIds, cluster)).resolves.toBe(222n);
     await expect(adapter.getOperatorFee("ETH", 17n)).resolves.toBe(333n);
@@ -82,6 +92,7 @@ describe("createViewsAdapter", () => {
     await expect(adapter.getNetworkFee("SSV")).resolves.toBe(666n);
 
     expect(calledMethods).toEqual([
+      "getClusterAssetType",
       "getBalance",
       "getBalanceSSV",
       "getOperatorFee",
@@ -89,6 +100,7 @@ describe("createViewsAdapter", () => {
       "getNetworkFee",
       "getNetworkFeeSSV",
     ]);
+    expect(calledBlockTags).toEqual(["0x7b", "latest", "latest", "latest", "latest", "latest", "latest"]);
   });
 
   it("keeps the existing legacy helpers on the SSV surface", async () => {

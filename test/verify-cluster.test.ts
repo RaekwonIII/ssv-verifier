@@ -142,14 +142,14 @@ describe("verifyClusterIdentity", () => {
         ethCallCount += 1;
 
         if (ethCallCount === 1) {
-          return new Response(
-            JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: 3, message: "execution reverted: IncorrectClusterState" } }),
-            { status: 200 },
-          );
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }), { status: 200 });
         }
 
         if (ethCallCount === 2) {
-          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }), { status: 200 });
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }),
+            { status: 200 },
+          );
         }
 
         if (ethCallCount >= 3 && ethCallCount <= 6) {
@@ -223,6 +223,7 @@ describe("verifyClusterIdentity", () => {
                 index: "20",
                 active: true,
                 balance: "30",
+                feeAsset: "SSV",
               },
             },
           }),
@@ -309,14 +310,14 @@ describe("verifyClusterIdentity", () => {
         ethCallCount += 1;
 
         if (ethCallCount === 1) {
-          return new Response(
-            JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: 3, message: "execution reverted: IncorrectClusterState" } }),
-            { status: 200 },
-          );
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }), { status: 200 });
         }
 
         if (ethCallCount === 2) {
-          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }), { status: 200 });
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }),
+            { status: 200 },
+          );
         }
 
         if (ethCallCount >= 3 && ethCallCount <= 6) {
@@ -366,6 +367,7 @@ describe("verifyClusterIdentity", () => {
                 index: "20",
                 active: true,
                 balance: "30",
+                feeAsset: "SSV",
               },
             },
           }),
@@ -440,40 +442,10 @@ describe("verifyClusterIdentity", () => {
         ethCallCount += 1;
 
         if (ethCallCount === 1) {
-          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }), { status: 200 });
-        }
-
-        if (ethCallCount >= 3 && ethCallCount <= 6) {
-          return new Response(
-            JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: 3, message: "execution reverted: IncorrectClusterState" } }),
-            { status: 200 },
-          );
-        }
-
-        if (ethCallCount === 7) {
-          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x000000000000000000000000000000000000000000000000000000000000001e" }), { status: 200 });
-        }
-
-        if (ethCallCount === 8) {
-          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }), { status: 200 });
-        }
-
-        if (ethCallCount === 9) {
-          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }), { status: 200 });
-        }
-
-        if (ethCallCount === 10) {
           return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000001" }), { status: 200 });
         }
 
-        if (ethCallCount === 11) {
-          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000001" }), { status: 200 });
-        }
-
-        return new Response(
-          JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: 3, message: "execution reverted: IncorrectClusterState" } }),
-          { status: 200 },
-        );
+        throw new Error(`Unexpected eth_call #${ethCallCount}`);
       }
 
       if (body.query?.includes("_meta")) {
@@ -536,6 +508,9 @@ describe("verifyClusterIdentity", () => {
       subgraphValue: "SSV",
       viewsValue: "ETH",
     });
+    expect(result.checks.find((check) => check.name === "owner")).toMatchObject({
+      status: "inconclusive",
+    });
     expect(result.checks.find((check) => check.name === "currentBalance")).toMatchObject({
       status: "inconclusive",
     });
@@ -558,6 +533,10 @@ describe("verifyClusterIdentity", () => {
         ethCallCount += 1;
 
         if (ethCallCount === 1) {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000001" }), { status: 200 });
+        }
+
+        if (ethCallCount === 2) {
           return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }), { status: 200 });
         }
 
@@ -694,6 +673,10 @@ describe("verifyClusterIdentity", () => {
         ethCallCount += 1;
 
         if (ethCallCount === 1) {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000001" }), { status: 200 });
+        }
+
+        if (ethCallCount === 2) {
           return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }), { status: 200 });
         }
 
@@ -814,6 +797,10 @@ describe("verifyClusterIdentity", () => {
         ethCallCount += 1;
 
         if (ethCallCount === 1) {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000001" }), { status: 200 });
+        }
+
+        if (ethCallCount === 2) {
           return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }), { status: 200 });
         }
 
@@ -936,14 +923,14 @@ describe("verifyClusterIdentity", () => {
         ethCallCount += 1;
 
         if (ethCallCount === 1) {
-          return new Response(
-            JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: 3, message: "execution reverted: IncorrectClusterState" } }),
-            { status: 200 },
-          );
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }), { status: 200 });
         }
 
         if (ethCallCount === 2) {
-          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }), { status: 200 });
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }),
+            { status: 200 },
+          );
         }
 
         if (ethCallCount >= 3 && ethCallCount <= 6) {
@@ -993,6 +980,7 @@ describe("verifyClusterIdentity", () => {
                 index: "20",
                 active: true,
                 balance: "30",
+                feeAsset: "SSV",
               },
             },
           }),
@@ -1056,14 +1044,14 @@ describe("verifyClusterIdentity", () => {
         ethCallCount += 1;
 
         if (ethCallCount === 1) {
-          return new Response(
-            JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: 3, message: "execution reverted: IncorrectClusterState" } }),
-            { status: 200 },
-          );
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }), { status: 200 });
         }
 
         if (ethCallCount === 2) {
-          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }), { status: 200 });
+          return new Response(
+            JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }),
+            { status: 200 },
+          );
         }
 
         if (ethCallCount >= 3 && ethCallCount <= 6) {
@@ -1113,6 +1101,7 @@ describe("verifyClusterIdentity", () => {
                 index: "20",
                 active: true,
                 balance: "30",
+                feeAsset: "SSV",
               },
             },
           }),
@@ -1163,6 +1152,7 @@ describe("verifyClusterIdentity", () => {
 
   it("reports when Views rejects the subgraph state", async () => {
     const config = loadRuntimeConfig("hoodi", baseEnv);
+    let ethCallCount = 0;
     const fetchFn: typeof fetch = async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as { method?: string; query?: string };
 
@@ -1171,6 +1161,12 @@ describe("verifyClusterIdentity", () => {
       }
 
       if (body.method === "eth_call") {
+        ethCallCount += 1;
+
+        if (ethCallCount === 1) {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x0000000000000000000000000000000000000000000000000000000000000000" }), { status: 200 });
+        }
+
         return new Response(
           JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: 3, message: "execution reverted: ClusterDoesNotExists" } }),
           { status: 200 },
@@ -1194,6 +1190,7 @@ describe("verifyClusterIdentity", () => {
                 index: "20",
                 active: true,
                 balance: "30",
+                feeAsset: "SSV",
               },
             },
           }),
@@ -1231,8 +1228,9 @@ describe("verifyClusterIdentity", () => {
 
     expect(result.status).toBe("fail");
     expect(result.checks.find((check) => check.name === "assetType")).toMatchObject({
-      status: "inconclusive",
+      status: "pass",
       subgraphValue: "SSV",
+      viewsValue: "SSV",
     });
     expect(result.checks.filter((check) => check.status === "fail")).toHaveLength(8);
     expect(result.checks).toHaveLength(9);
