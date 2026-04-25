@@ -473,7 +473,7 @@ describe("verifyClusterIdentity", () => {
       lagBlocks: 0,
       status: "fresh",
     });
-    expect(result.checks).toHaveLength(12);
+    expect(result.checks).toHaveLength(13);
     expect(result.checks.find((check) => check.name === "clusterState")).toMatchObject({
       subgraphValue: clusterId,
       status: "pass",
@@ -490,6 +490,11 @@ describe("verifyClusterIdentity", () => {
     expect(result.checks.find((check) => check.name === "operatorData")).toMatchObject({
       subgraphValue: "SSV",
       status: "pass",
+    });
+    expect(result.checks.find((check) => check.name === "subgraphLag")).toMatchObject({
+      status: "pass",
+      subgraphValue: "20",
+      viewsValue: "20",
     });
     expect(result.checks.every((check) => check.status === "pass")).toBe(true);
     expect(result.checks.find((check) => check.name === "currentBalance")).toMatchObject({
@@ -1521,14 +1526,14 @@ describe("verifyClusterIdentity", () => {
     });
   });
 
-  it("downgrades mismatches to warnings when the subgraph is lagging", async () => {
+  it("reports lag as a separate operational check without downgrading mismatches", async () => {
     const config = loadRuntimeConfig("hoodi", baseEnv);
     let ethCallCount = 0;
     const fetchFn: typeof fetch = async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as { method?: string; query?: string };
 
       if (body.method === "eth_blockNumber") {
-        return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x14" }), { status: 200 });
+        return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x18" }), { status: 200 });
       }
 
       if (body.method === "eth_call") {
@@ -1576,7 +1581,7 @@ describe("verifyClusterIdentity", () => {
       }
 
       if (body.query?.includes("_meta")) {
-        return new Response(JSON.stringify({ data: { _meta: { block: { number: 18 } } } }), { status: 200 });
+        return new Response(JSON.stringify({ data: { _meta: { block: { number: 20 } } } }), { status: 200 });
       }
 
       if (body.query?.includes("cluster(id: $id)")) {
@@ -1633,16 +1638,22 @@ describe("verifyClusterIdentity", () => {
 
     const result = await verifyClusterIdentity(config, clusterId, { fetchFn });
 
-    expect(result.status).toBe("warn");
+    expect(result.status).toBe("fail");
     expect(result.freshness).toMatchObject({
-      indexedBlockNumber: 18,
-      chainHeadBlockNumber: 20,
-      lagBlocks: 2,
+      indexedBlockNumber: 20,
+      chainHeadBlockNumber: 24,
+      lagBlocks: 4,
       status: "lagging",
     });
     expect(result.checks.find((check) => check.name === "currentBalance")).toMatchObject({
+      status: "fail",
+      classification: "mismatch",
+    });
+    expect(result.checks.find((check) => check.name === "subgraphLag")).toMatchObject({
       status: "warn",
       classification: "lag-affected",
+      subgraphValue: "20",
+      viewsValue: "24",
     });
     expect(renderVerifyClusterSummary(result)).toContain("subgraph freshness: lagging");
   });
@@ -1961,6 +1972,7 @@ describe("verifyClusterIdentity", () => {
       status: "inconclusive",
       blockedBy: ["operatorData"],
     });
+    expect(result.checks.find((check) => check.name === "subgraphLag")).toBeUndefined();
   });
 
   it("fails daoData when selected-surface DAO inputs are missing and blocks derived checks", async () => {

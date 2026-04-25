@@ -152,3 +152,6 @@
 - Reviewed the current repository state, progress log, and open GitHub issues #57 through #68, then selected issue #57 as the next unblocked slice after #56.
 - Pinned the four derived cluster comparisons to the subgraph verification block, moved them onto independent same-block Views reads, and surfaced direct read failures as structured `viewsReadFailed` inconclusive diagnostics instead of aborting sibling checks.
 - Added regression coverage for pinned block-tag propagation and per-check Views read failures, then verified the slice with `npx vitest run test/views.test.ts test/verify-cluster.test.ts`, `npm test`, and `npm run build`.
+- Reviewed the current repository state, progress log, and open GitHub issues #58 through #68, then selected issue #58 as the next unblocked slice after #57.
+- Replaced lag-based mutation of derived check outcomes with a separate `subgraphLag` operational check that runs only after the applicable cluster input gates pass and warns only when lag exceeds the agreed three-block buffer.
+- Updated cluster verification coverage for passing lag checks, warning lag checks, and omitted lag checks when selected-surface inputs are blocked, then verified the slice with `npx vitest run test/verify-cluster.test.ts`, `npm test`, and `npm run build`.

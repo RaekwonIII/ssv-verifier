@@ -29,6 +29,7 @@ export type CheckClassification = "verified" | "mismatch" | "lag-affected" | "in
 export interface ClusterIdentityCheckResult {
   name:
     | "clusterState"
+    | "subgraphLag"
     | "assetType"
     | "daoData"
     | "operatorData"
@@ -268,45 +269,24 @@ function createFreshness(indexedBlockNumber: bigint, chainHeadBlockNumber: bigin
 
 function applyFreshnessClassification(
   checks: ClusterIdentityCheckResult[],
-  freshness: SubgraphFreshness,
+  _freshness: SubgraphFreshness,
 ): ClusterIdentityCheckResult[] {
-  if (freshness.status === "fresh") {
-    return checks.map((check) => ({
-      ...check,
-      classification: check.status === "pass"
-        ? "verified"
-        : check.status === "inconclusive"
-          ? "inconclusive"
-          : "mismatch",
-    }));
-  }
+  return checks;
+}
 
-  return checks.map((check) => {
-    if (check.status === "inconclusive") {
-      return check;
-    }
+function createSubgraphLagCheck(freshness: SubgraphFreshness): ClusterIdentityCheckResult {
+  const withinBuffer = freshness.lagBlocks <= 3;
 
-    if (!["currentBalance", "burnRate", "liquidationCollateral", "liquidatable"].includes(check.name)) {
-      return {
-        ...check,
-        classification: check.status === "pass" ? "verified" : "mismatch",
-      };
-    }
-
-    if (check.status !== "fail") {
-      return {
-        ...check,
-        classification: "verified",
-      };
-    }
-
-    return {
-      ...check,
-      status: "warn",
-      classification: "lag-affected",
-      detail: `${check.detail}; subgraph trails chain head by ${freshness.lagBlocks} block(s)`,
-    };
-  });
+  return {
+    name: "subgraphLag",
+    status: withinBuffer ? "pass" : "warn",
+    classification: withinBuffer ? "verified" : "lag-affected",
+    subgraphValue: freshness.indexedBlockNumber.toString(),
+    viewsValue: freshness.chainHeadBlockNumber.toString(),
+    detail: withinBuffer
+      ? `Subgraph verification block stayed within the 3-block operational buffer (lag=${freshness.lagBlocks})`
+      : `Subgraph verification block lagged chain head by ${freshness.lagBlocks} block(s), exceeding the 3-block operational buffer`,
+  };
 }
 
 function summarizeStatus(checks: ClusterIdentityCheckResult[]): CheckStatus {
@@ -371,6 +351,7 @@ async function buildPinnedDerivedChecks(args: {
   identityChecksPromise: Promise<ClusterIdentityCheckResult[]>;
   verificationBlockNumber: bigint;
   verificationBlockTag: string;
+  freshness: SubgraphFreshness;
 }): Promise<ClusterIdentityCheckResult[]> {
   const {
     views,
@@ -383,6 +364,7 @@ async function buildPinnedDerivedChecks(args: {
     identityChecksPromise,
     verificationBlockNumber,
     verificationBlockTag,
+    freshness,
   } = args;
   const viewsClusterState = toViewsClusterState(cluster);
   const derivedBalance = deriveCurrentClusterBalance({ ...cluster, feeAsset: asset }, operators, daoValues, verificationBlockNumber);
@@ -489,6 +471,7 @@ async function buildPinnedDerivedChecks(args: {
           `Derived liquidatable status did not match pinned Views at block ${verificationBlockNumber.toString()} (balance=${derivedBalance.value.toString()}, collateral=${derivedLiquidationCollateral.value.toString()})`,
         )
       : createViewsReadFailedCheck("liquidatable", String(expectedLiquidatable.value), [viewsLiquidatable.diagnostic]),
+    createSubgraphLagCheck(freshness),
   ];
 }
 
@@ -1170,6 +1153,7 @@ export async function verifyClusterIdentity(
               identityChecksPromise,
               verificationBlockNumber,
               verificationBlockTag,
+              freshness,
             });
           }
 
@@ -1202,6 +1186,7 @@ export async function verifyClusterIdentity(
             identityChecksPromise,
             verificationBlockNumber,
             verificationBlockTag,
+            freshness,
           });
         });
       })();
