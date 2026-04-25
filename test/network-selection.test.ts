@@ -104,6 +104,16 @@ describe("parseCliArgs", () => {
       output: "text",
     });
   });
+
+  it("rejects irrelevant --cluster flags outside verify-cluster", () => {
+    expect(() => parseCliArgs(["verify-clusters", "--network", "hoodi", "--cluster", "abc"]))
+      .toThrow(/does not accept --cluster/);
+  });
+
+  it("rejects irrelevant --operator flags outside verify-operator", () => {
+    expect(() => parseCliArgs(["verify-operators", "--network", "both", "--operator", "17"]))
+      .toThrow(/does not accept --operator/);
+  });
 });
 
 describe("loadRuntimeConfig", () => {

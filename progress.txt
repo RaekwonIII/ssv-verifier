@@ -105,3 +105,10 @@
 - Updated `verify-clusters` to continue through per-cluster verification errors by wrapping them as inconclusive batch results instead of aborting the whole run.
 - Added JSON rendering for cluster batch runs so both text and machine-readable output include explicit inconclusive totals and per-cluster results.
 - Expanded automated coverage for mixed batch results that include thrown per-cluster errors, then verified the slice with `npx vitest run test/verify-clusters.test.ts`, `npm test`, and `npm run build`.
+2026-04-25 Iteration 3
+- Reviewed the current repository state, progress log, and all open GitHub issues #49 through #68, then selected issue #49 as the next unblocked feature in dependency order.
+- Created branch `ralph/issue-49-cluster-id-parser` from `sprint-2`.
+- Added a shared cluster ID parser that validates lowercased owner addresses, allowed operator-set sizes (`4|7|10|13`), canonical positive operator IDs, strict ascending order, and uniqueness before verification starts.
+- Tightened CLI parsing so `verify-cluster` rejects `--network both`, and command-specific `--cluster` and `--operator` flags now fail fast when used with the wrong command.
+- Added regression coverage for canonical cluster ID parsing plus malformed owner, operator count, operator formatting, ordering, uniqueness, and irrelevant CLI flag combinations.
+- Verified the slice with `npx vitest run test/verify-cluster.test.ts test/network-selection.test.ts`, `npm test`, and `npm run build`.
