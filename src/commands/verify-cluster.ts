@@ -961,18 +961,15 @@ export async function verifyClusterIdentity(
           if (validationAsset === "ETH") {
             const effectiveBalanceCheck = cluster.effectiveBalance !== null
               && cluster.effectiveBalance > 0n
-              && cluster.effectiveBalance % 32n === 0n
-              ? {
-                  name: "effectiveBalance",
-                  status: "pass",
-                  classification: "verified",
-                  subgraphValue: cluster.effectiveBalance.toString(),
-                  detail: `ETH effective balance was present and produced scale ${(cluster.effectiveBalance / 32n).toString()}`,
-                } satisfies ClusterIdentityCheckResult
+              ? createPassCheck(
+                  "effectiveBalance",
+                  cluster.effectiveBalance.toString(),
+                  `ETH effective balance was present and produced scale ${(cluster.effectiveBalance / 32n).toString()}`,
+                )
               : createFailureCheck(
                   "effectiveBalance",
                   cluster.effectiveBalance?.toString() ?? "missing",
-                  "ETH effective balance must be present, positive, and divisible by 32",
+                  "ETH effective balance must be present and greater than zero",
                 );
 
             if (blockedInputChecks.length > 0) {
@@ -985,6 +982,20 @@ export async function verifyClusterIdentity(
                 ...createBlockedDerivedChecks(
                   derivedBlockerDetail,
                   blockedInputChecks.map((check) => check.name),
+                ),
+              ]);
+            }
+
+            if (effectiveBalanceCheck.status !== "pass") {
+              return identityChecksPromise.then((identityChecks) => [
+                ...baseChecks,
+                ...identityChecks,
+                daoDataCheck,
+                operatorDataCheck,
+                effectiveBalanceCheck,
+                ...createBlockedDerivedChecks(
+                  `Skipped derived cluster verification because effectiveBalance was ${effectiveBalanceCheck.status.toUpperCase()}`,
+                  ["effectiveBalance"],
                 ),
               ]);
             }
