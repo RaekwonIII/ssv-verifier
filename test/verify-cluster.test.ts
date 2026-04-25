@@ -266,7 +266,11 @@ describe("verifyClusterIdentity", () => {
       lagBlocks: 0,
       status: "fresh",
     });
-    expect(result.checks).toHaveLength(9);
+    expect(result.checks).toHaveLength(10);
+    expect(result.checks.find((check) => check.name === "clusterState")).toMatchObject({
+      subgraphValue: clusterId,
+      status: "pass",
+    });
     expect(result.checks.find((check) => check.name === "assetType")).toMatchObject({
       subgraphValue: "SSV",
       viewsValue: "SSV",
@@ -1232,8 +1236,115 @@ describe("verifyClusterIdentity", () => {
       subgraphValue: "SSV",
       viewsValue: "SSV",
     });
-    expect(result.checks.filter((check) => check.status === "fail")).toHaveLength(8);
-    expect(result.checks).toHaveLength(9);
+    expect(result.checks.find((check) => check.name === "clusterState")).toMatchObject({
+      status: "fail",
+    });
+    expect(result.checks.filter((check) => check.status === "fail")).toHaveLength(1);
+    expect(result.checks.filter((check) => check.status === "inconclusive")).toHaveLength(8);
+    expect(result.checks).toHaveLength(10);
     expect(renderVerifyClusterSummary(result)).toContain("Views rejected the subgraph cluster state");
+  });
+
+  it("fails clusterState for malformed discovered cluster ids and blocks downstream checks", async () => {
+    const config = loadRuntimeConfig("hoodi", baseEnv);
+    const result = await verifyClusterIdentity(config, "bad-cluster-id", {
+      fetchFn: async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as { method?: string };
+
+        if (body.method === "eth_blockNumber") {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x14" }), { status: 200 });
+        }
+
+        throw new Error("unexpected request");
+      },
+    });
+
+    expect(result.status).toBe("fail");
+    expect(result.checks.find((check) => check.name === "clusterState")).toMatchObject({
+      status: "fail",
+      subgraphValue: "bad-cluster-id",
+    });
+    expect(result.checks.find((check) => check.name === "assetType")).toMatchObject({
+      status: "inconclusive",
+      blockedBy: ["clusterState"],
+    });
+  });
+
+  it("fails clusterState when the pinned cluster snapshot is not found", async () => {
+    const config = loadRuntimeConfig("hoodi", baseEnv);
+    const result = await verifyClusterIdentity(config, clusterId, {
+      fetchFn: async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as { method?: string; query?: string };
+
+        if (body.method === "eth_blockNumber") {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x14" }), { status: 200 });
+        }
+
+        if (body.query?.includes("_meta") && body.query?.includes("cluster(id: $id)")) {
+          return new Response(JSON.stringify({ data: { _meta: { block: { number: 20 } }, cluster: null } }), { status: 200 });
+        }
+
+        throw new Error(`Unexpected request payload: ${JSON.stringify(body)}`);
+      },
+    });
+
+    expect(result.status).toBe("fail");
+    expect(result.checks.find((check) => check.name === "clusterState")).toMatchObject({
+      status: "fail",
+      detail: expect.stringContaining("was not found in the subgraph at block 20"),
+    });
+    expect(result.checks.every((check) => check.name === "clusterState" || check.blockedBy?.includes("clusterState"))).toBe(true);
+  });
+
+  it("fails clusterState on fetched owner mismatches before downstream checks run", async () => {
+    const config = loadRuntimeConfig("hoodi", baseEnv);
+    const result = await verifyClusterIdentity(config, clusterId, {
+      fetchFn: async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as { method?: string; query?: string };
+
+        if (body.method === "eth_blockNumber") {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x14" }), { status: 200 });
+        }
+
+        if (body.query?.includes("cluster(id: $id)")) {
+          return new Response(
+            JSON.stringify({
+              data: {
+                _meta: { block: { number: 20 } },
+                cluster: {
+                  id: clusterId,
+                  owner: { id: "0x0000000000000000000000000000000000000001" },
+                  operatorIds: ["5", "6", "7", "523"],
+                  validatorCount: "1",
+                  networkFeeIndex: "10",
+                  index: "20",
+                  active: true,
+                  balance: "30",
+                  feeAsset: "SSV",
+                },
+              },
+            }),
+            { status: 200 },
+          );
+        }
+
+        if (body.query?.includes("daovalues(id: $daoId)")) {
+          return new Response(JSON.stringify({ data: { operators: [], daovalues: null } }), { status: 200 });
+        }
+
+        throw new Error(`Unexpected request payload: ${JSON.stringify(body)}`);
+      },
+    });
+
+    expect(result.status).toBe("fail");
+    expect(result.checks.find((check) => check.name === "clusterState")).toMatchObject({
+      status: "fail",
+      subgraphValue: "0x0000000000000000000000000000000000000001",
+      viewsValue: "0xe8c927a1fa792eddefe23fda643a62e03f999830",
+    });
+    expect(result.checks.find((check) => check.name === "owner")).toMatchObject({
+      status: "inconclusive",
+      blockedBy: ["clusterState"],
+    });
   });
 });

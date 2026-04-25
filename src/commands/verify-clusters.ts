@@ -78,15 +78,15 @@ async function verifyAllClustersForNetwork(
             status: "fresh",
           },
           status: "inconclusive",
-          checks: [
-            {
-              name: "currentBalance",
-              status: "inconclusive",
-              classification: "inconclusive",
-              detail: error instanceof Error ? error.message : String(error),
-              subgraphValue: "unavailable",
-            },
-          ],
+            checks: [
+              {
+                name: "clusterState",
+                status: "inconclusive",
+                classification: "inconclusive",
+                detail: error instanceof Error ? error.message : String(error),
+                subgraphValue: clusterId,
+              },
+            ],
           errorDetail: error instanceof Error ? error.message : String(error),
         } satisfies VerifyClusterBatchResult;
       }

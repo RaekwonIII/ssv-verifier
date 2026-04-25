@@ -205,7 +205,7 @@ describe("verifyAllClusters", () => {
       inconclusiveChecks: 1,
       failedChecks: 0,
     });
-    expect(renderVerifyClustersSummary(result)).toContain("mainnet/mainnet-cluster: non-passing checks=currentBalance:inconclusive");
+    expect(renderVerifyClustersSummary(result)).toContain("mainnet/mainnet-cluster: non-passing checks=clusterState:inconclusive");
     expect(renderVerifyClustersJson(result)).toContain('"inconclusiveChecks": 1');
   });
 
@@ -252,5 +252,46 @@ describe("verifyAllClusters", () => {
       ...result,
       networkResults: [result],
     })).toContain("1 inconclusive");
+  });
+
+  it("preserves clusterState semantics for malformed discovered cluster ids", async () => {
+    const config = loadRuntimeConfig("hoodi", baseEnv);
+    const result = await verifyAllClusters(config, {
+      fetchClusterIds: async () => ({
+        clusterIds: ["bad-cluster-id"],
+        source: "primary",
+      }),
+      fetchFn: async (_input, init) => {
+        const body = JSON.parse(String(init?.body)) as { method?: string };
+
+        if (body.method === "eth_blockNumber") {
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x14" }), { status: 200 });
+        }
+
+        throw new Error("unexpected request");
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "fail",
+      totalClusters: 1,
+      inconclusiveChecks: 9,
+      failedChecks: 1,
+    });
+    expect(result.clusterResults[0]).toMatchObject({
+      clusterId: "bad-cluster-id",
+      status: "fail",
+      checks: expect.arrayContaining([
+        expect.objectContaining({
+          name: "clusterState",
+          status: "fail",
+        }),
+        expect.objectContaining({
+          name: "assetType",
+          status: "inconclusive",
+          blockedBy: ["clusterState"],
+        }),
+      ]),
+    });
   });
 });
