@@ -8,6 +8,7 @@ import { renderVerifyOperatorJson, renderVerifyOperatorSummary, verifyOperatorSt
 import { renderVerifyOperatorsJson, renderVerifyOperatorsSummary, verifyOperators } from "./commands/verify-operators.js";
 import { renderVerifyNetworkJson, renderVerifyNetworkSummary, verifyNetwork } from "./commands/verify-network.js";
 import { isNetworkTarget, supportedNetworks, type NetworkTarget } from "./config/networks.js";
+import { parseClusterId } from "./domain/cluster-id.js";
 import { exitCodeForStatus, summarizeStatuses } from "./status.js";
 
 interface CliArgs {
@@ -111,8 +112,24 @@ export function parseCliArgs(argv: string[]): CliArgs {
     throw new Error("Missing required --network option.");
   }
 
+  if (clusterId && command !== "verify-cluster") {
+    throw new Error(`Command ${command} does not accept --cluster.`);
+  }
+
+  if (operatorId && command !== "verify-operator") {
+    throw new Error(`Command ${command} does not accept --operator.`);
+  }
+
   if (command === "verify-cluster" && !clusterId) {
     throw new Error("Missing required --cluster option.");
+  }
+
+  if (command === "verify-cluster" && network === "both") {
+    throw new Error("verify-cluster does not support --network both. Choose exactly one network.");
+  }
+
+  if (command === "verify-cluster" && clusterId) {
+    clusterId = parseClusterId(clusterId).canonicalId;
   }
 
   if (command === "verify-operator" && !operatorId) {

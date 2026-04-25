@@ -10,6 +10,7 @@ import {
   verifyClusterIdentity,
 } from "../src/commands/verify-cluster.js";
 import { loadRuntimeConfig } from "../src/config/env.js";
+import { parseClusterId } from "../src/domain/cluster-id.js";
 import { parseCliArgs } from "../src/index.js";
 
 const baseEnv = {
@@ -38,6 +39,48 @@ describe("parseCliArgs verify-cluster", () => {
       clusterId,
       output: "json",
     });
+  });
+
+  it("rejects verify-cluster with --network both", () => {
+    expect(() => parseCliArgs(["verify-cluster", "--network", "both", "--cluster", clusterId])).toThrow(
+      /verify-cluster does not support --network both/
+    );
+  });
+
+  it("rejects verify-cluster with an irrelevant --operator flag", () => {
+    expect(() => parseCliArgs(["verify-cluster", "--network", "hoodi", "--cluster", clusterId, "--operator", "17"])).toThrow(
+      /does not accept --operator/
+    );
+  });
+});
+
+describe("parseClusterId", () => {
+  it("returns the canonical parsed cluster identifier", () => {
+    expect(parseClusterId(clusterId)).toEqual({
+      ownerAddress: "0xe8c927a1fa792eddefe23fda643a62e03f999830",
+      operatorIds: [5n, 6n, 7n, 523n],
+      canonicalId: clusterId,
+    });
+  });
+
+  it("rejects malformed owner addresses", () => {
+    expect(() => parseClusterId("0xE8c927a1fa792eddefe23fda643a62e03f999830-5-6-7-523")).toThrow(/owner segment/);
+  });
+
+  it("rejects unsupported operator counts", () => {
+    expect(() => parseClusterId("0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-7")).toThrow(/operator count/);
+  });
+
+  it("rejects non-canonical operator IDs", () => {
+    expect(() => parseClusterId("0xe8c927a1fa792eddefe23fda643a62e03f999830-5-06-7-523")).toThrow(/canonical base-10/);
+  });
+
+  it("rejects unsorted operator IDs", () => {
+    expect(() => parseClusterId("0xe8c927a1fa792eddefe23fda643a62e03f999830-5-7-6-523")).toThrow(/strictly ascending/);
+  });
+
+  it("rejects duplicate operator IDs", () => {
+    expect(() => parseClusterId("0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-6-523")).toThrow(/Duplicate operator ID 6/);
   });
 });
 
