@@ -1,7 +1,7 @@
 import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
 import { jsonRpcRequest } from "../clients/json-rpc.js";
-import { fetchSubgraphClusterAccounting } from "../clients/subgraph.js";
+import { fetchPinnedSubgraphClusterSnapshot } from "../clients/subgraph.js";
 import { summarizeStatuses, type CheckStatus } from "../status.js";
 import {
   createViewsAdapter,
@@ -485,13 +485,33 @@ export async function verifyClusterIdentity(
     [],
     fetchFn,
   ).then(hexToBigInt);
-  const subgraphAccounting = await fetchSubgraphClusterAccounting(
+  const subgraphAccounting = await fetchPinnedSubgraphClusterSnapshot(
     networkConfig.subgraphPrimaryUrl,
     networkConfig.subgraphFallbackUrl,
     clusterId,
     networkConfig.daoAddress,
     fetchFn,
   );
+  if (subgraphAccounting.status === "query-failed") {
+    throw new Error(subgraphAccounting.detail);
+  }
+
+  if (subgraphAccounting.status === "not-found") {
+    throw new Error(`Cluster ${clusterId} was not found in the subgraph`);
+  }
+
+  const missingOperatorIds = subgraphAccounting.cluster.operatorIds.filter(
+    (operatorId) => !subgraphAccounting.operators.some((operator) => operator.id === operatorId),
+  );
+
+  if (missingOperatorIds.length > 0) {
+    throw new Error(`Subgraph response was missing operators: ${missingOperatorIds.join(", ")}`);
+  }
+
+  if (!subgraphAccounting.daoValues) {
+    throw new Error(`Subgraph response did not include DAO values for ${networkConfig.daoAddress}`);
+  }
+
   const cluster = normalizeClusterValue(subgraphAccounting.cluster);
   const operators = subgraphAccounting.operators.map(normalizeOperatorValue);
   const daoValues = normalizeDaoValues(subgraphAccounting.daoValues);
