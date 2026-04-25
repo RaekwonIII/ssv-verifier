@@ -26,6 +26,8 @@ export interface ClusterIdentityCheckResult {
   name:
     | "clusterState"
     | "assetType"
+    | "daoData"
+    | "operatorData"
     | "owner"
     | "operatorIds"
     | "validatorCount"
@@ -469,6 +471,8 @@ function createBlockedAccountingChecks(
 ): ClusterIdentityCheckResult[] {
   return [
     createBlockedCheck("assetType", detail, blockedBy),
+    createBlockedCheck("daoData", detail, blockedBy),
+    createBlockedCheck("operatorData", detail, blockedBy),
     createBlockedCheck("owner", detail, blockedBy),
     createBlockedCheck("operatorIds", detail, blockedBy),
     createBlockedCheck("validatorCount", detail, blockedBy),
@@ -486,6 +490,8 @@ function createBlockedEthAccountingChecks(
 ): ClusterIdentityCheckResult[] {
   return [
     createBlockedCheck("assetType", detail, blockedBy),
+    createBlockedCheck("daoData", detail, blockedBy),
+    createBlockedCheck("operatorData", detail, blockedBy),
     createBlockedCheck("owner", detail, blockedBy),
     createBlockedCheck("operatorIds", detail, blockedBy),
     createBlockedCheck("validatorCount", detail, blockedBy),
@@ -500,8 +506,179 @@ function createBlockedEthAccountingChecks(
 
 function clusterChecksForAsset(asset: FeeAsset | null): ClusterIdentityCheckResult["name"][] {
   return asset === "ETH"
-    ? ["assetType", "owner", "operatorIds", "validatorCount", "active", "effectiveBalance", "currentBalance", "burnRate", "liquidationCollateral", "liquidatable"]
-    : ["assetType", "owner", "operatorIds", "validatorCount", "active", "currentBalance", "burnRate", "liquidationCollateral", "liquidatable"];
+    ? ["assetType", "daoData", "operatorData", "owner", "operatorIds", "validatorCount", "active", "effectiveBalance", "currentBalance", "burnRate", "liquidationCollateral", "liquidatable"]
+    : ["assetType", "daoData", "operatorData", "owner", "operatorIds", "validatorCount", "active", "currentBalance", "burnRate", "liquidationCollateral", "liquidatable"];
+}
+
+function createPassCheck(
+  name: ClusterIdentityCheckResult["name"],
+  subgraphValue: string,
+  detail: string,
+  viewsValue?: string,
+): ClusterIdentityCheckResult {
+  return {
+    name,
+    status: "pass",
+    classification: "verified",
+    subgraphValue,
+    detail,
+    ...(viewsValue ? { viewsValue } : {}),
+  };
+}
+
+function createBlockedDerivedChecks(
+  detail: string,
+  blockedBy: ClusterIdentityCheckResult["name"][],
+): ClusterIdentityCheckResult[] {
+  return (["currentBalance", "burnRate", "liquidationCollateral", "liquidatable"] as const).map((name) =>
+    createInconclusiveCheck(name, "blocked", detail, blockedBy)
+  );
+}
+
+function parseUnsignedDecimalValue(value: string): bigint | null {
+  if (!/^\d+$/.test(value)) {
+    return null;
+  }
+
+  return BigInt(value);
+}
+
+function operatorAccountingFieldNames(asset: FeeAsset): Array<keyof NormalizedOperator> {
+  return asset === "ETH"
+    ? ["fee", "feeIndex", "feeIndexBlockNumber"]
+    : ["feeSSV", "feeIndexSSV", "feeIndexBlockNumberSSV"];
+}
+
+function daoAccountingFieldNames(asset: FeeAsset): Array<keyof NormalizedDaoValues> {
+  return asset === "ETH"
+    ? ["networkFee", "networkFeeIndex", "networkFeeIndexBlockNumber", "liquidationThreshold", "minimumLiquidationCollateral"]
+    : ["networkFeeSSV", "networkFeeIndexSSV", "networkFeeIndexBlockNumberSSV", "liquidationThresholdSSV", "minimumLiquidationCollateralSSV"];
+}
+
+function validateSelectedOperatorData(
+  asset: FeeAsset,
+  operators: ReadonlyArray<{
+    id: string;
+    fee?: string | null;
+    feeIndex?: string | null;
+    feeIndexBlockNumber?: string | null;
+    feeSSV?: string | null;
+    feeIndexSSV?: string | null;
+    feeIndexBlockNumberSSV?: string | null;
+  }>,
+  expectedOperatorIds: bigint[],
+): ClusterIdentityCheckResult {
+  const operatorsById = new Map(operators.map((operator) => [operator.id, operator]));
+  const missingInputs: string[] = [];
+  const invalidInputs: string[] = [];
+
+  for (const operatorId of expectedOperatorIds) {
+    const operator = operatorsById.get(operatorId.toString());
+
+    if (!operator) {
+      missingInputs.push(`operator ${operatorId.toString()} record`);
+      continue;
+    }
+
+    for (const fieldName of operatorAccountingFieldNames(asset)) {
+      const rawValue = operator[fieldName];
+
+      if (rawValue === undefined || rawValue === null) {
+        missingInputs.push(`operator ${operatorId.toString()} ${fieldName}`);
+        continue;
+      }
+
+      if (parseUnsignedDecimalValue(rawValue) === null) {
+        invalidInputs.push(`operator ${operatorId.toString()} ${fieldName}=${rawValue}`);
+      }
+    }
+  }
+
+  if (missingInputs.length > 0) {
+    return createInconclusiveCheck(
+      "operatorData",
+      asset,
+      `Selected ${asset} operator accounting inputs were missing: ${missingInputs.join(", ")}`,
+    );
+  }
+
+  if (invalidInputs.length > 0) {
+    return createFailureCheck(
+      "operatorData",
+      asset,
+      `Selected ${asset} operator accounting inputs were invalid: ${invalidInputs.join(", ")}`,
+    );
+  }
+
+  return createPassCheck(
+    "operatorData",
+    asset,
+    `Selected ${asset} operator accounting inputs were present for ${expectedOperatorIds.length.toString()} operators`,
+  );
+}
+
+function validateSelectedDaoData(
+  asset: FeeAsset,
+  daoValues:
+    | {
+        networkFee?: string | null;
+        networkFeeIndex?: string | null;
+        networkFeeIndexBlockNumber?: string | null;
+        liquidationThreshold?: string | null;
+        minimumLiquidationCollateral?: string | null;
+        networkFeeSSV?: string | null;
+        networkFeeIndexSSV?: string | null;
+        networkFeeIndexBlockNumberSSV?: string | null;
+        liquidationThresholdSSV?: string | null;
+        minimumLiquidationCollateralSSV?: string | null;
+      }
+    | null,
+): ClusterIdentityCheckResult {
+  if (!daoValues) {
+    return createFailureCheck(
+      "daoData",
+      asset,
+      `Selected ${asset} DAO accounting inputs were missing for the requested network`,
+    );
+  }
+
+  const missingInputs: string[] = [];
+  const invalidInputs: string[] = [];
+
+  for (const fieldName of daoAccountingFieldNames(asset)) {
+    const rawValue = daoValues[fieldName];
+
+    if (rawValue === undefined || rawValue === null) {
+      missingInputs.push(fieldName);
+      continue;
+    }
+
+    if (parseUnsignedDecimalValue(rawValue) === null) {
+      invalidInputs.push(`${fieldName}=${rawValue}`);
+    }
+  }
+
+  if (missingInputs.length > 0) {
+    return createFailureCheck(
+      "daoData",
+      asset,
+      `Selected ${asset} DAO accounting inputs were missing: ${missingInputs.join(", ")}`,
+    );
+  }
+
+  if (invalidInputs.length > 0) {
+    return createFailureCheck(
+      "daoData",
+      asset,
+      `Selected ${asset} DAO accounting inputs were invalid: ${invalidInputs.join(", ")}`,
+    );
+  }
+
+  return createPassCheck(
+    "daoData",
+    asset,
+    `Selected ${asset} DAO accounting inputs were present`,
+  );
 }
 
 function buildBlockedClusterResult(
@@ -680,42 +857,6 @@ export async function verifyClusterIdentity(
     );
   }
 
-  const missingOperatorIds = subgraphAccounting.cluster.operatorIds.filter(
-    (operatorId) => !subgraphAccounting.operators.some((operator) => operator.id === operatorId),
-  );
-
-  if (missingOperatorIds.length > 0) {
-    return buildBlockedClusterResult(
-      network,
-      cluster.id,
-      subgraphAccounting.source,
-      freshness,
-      createInconclusiveCheck(
-        "clusterState",
-        cluster.id,
-        `Subgraph response was missing operators required to build a usable cluster snapshot: ${missingOperatorIds.join(", ")}`,
-      ),
-      clusterAsset,
-    );
-  }
-
-  if (!subgraphAccounting.daoValues) {
-    return buildBlockedClusterResult(
-      network,
-      cluster.id,
-      subgraphAccounting.source,
-      freshness,
-      createInconclusiveCheck(
-        "clusterState",
-        cluster.id,
-        `Subgraph response did not include DAO values for ${networkConfig.daoAddress}`,
-      ),
-      clusterAsset,
-    );
-  }
-
-  const operators = subgraphAccounting.operators.map(normalizeOperatorValue);
-  const daoValues = normalizeDaoValues(subgraphAccounting.daoValues);
   const views = createViewsAdapter(networkConfig.rpcUrl, networkConfig.viewsAddress, fetchFn);
   const verificationBlockTag = `0x${BigInt(subgraphAccounting.indexedBlockNumber).toString(16)}`;
   const onChainAsset = await views.getClusterAssetType(cluster.owner, cluster.operatorIds, verificationBlockTag);
@@ -753,22 +894,13 @@ export async function verifyClusterIdentity(
 
   const checks = assetTypeCheck.status !== "pass"
     ? [
-        {
-          name: "clusterState",
-          status: "pass",
-          classification: "verified",
-          subgraphValue: cluster.id,
-          detail: "Pinned subgraph cluster snapshot was usable for verification",
-        } satisfies ClusterIdentityCheckResult,
+        createPassCheck("clusterState", cluster.id, "Pinned subgraph cluster snapshot was usable for verification"),
         assetTypeCheck,
         ...blockedChecks.filter((check) => check.name !== "assetType"),
       ]
     : await (() => {
         const validationAsset: FeeAsset = subgraphAsset!;
         const baselinePromise = views.validateClusterState(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
-        const selectedOperators = selectOperatorAccounting(validationAsset, operators);
-        const selectedDaoValues = selectDaoAccounting(validationAsset, daoValues);
-
         return baselinePromise.then((baseline) => {
           const clusterStateCheck = baseline.status === "revert"
             ? createFailureCheck(
@@ -776,13 +908,11 @@ export async function verifyClusterIdentity(
                 cluster.id,
                 `Views rejected the subgraph cluster state on the ${validationAsset} surface: ${baseline.detail}`,
               )
-            : {
-                name: "clusterState",
-                status: "pass",
-                classification: "verified",
-                subgraphValue: cluster.id,
-                detail: `Pinned subgraph cluster snapshot was usable on the ${validationAsset} Views surface`,
-              } satisfies ClusterIdentityCheckResult;
+            : createPassCheck(
+                "clusterState",
+                cluster.id,
+                `Pinned subgraph cluster snapshot was usable on the ${validationAsset} Views surface`,
+              );
 
           if (baseline.status === "revert") {
             return [
@@ -821,6 +951,12 @@ export async function verifyClusterIdentity(
               })
             ),
           ]);
+          const daoDataCheck = validateSelectedDaoData(validationAsset, subgraphAccounting.daoValues);
+          const operatorDataCheck = validateSelectedOperatorData(validationAsset, subgraphAccounting.operators, cluster.operatorIds);
+          const blockedInputChecks = [daoDataCheck, operatorDataCheck].filter((check) => check.status !== "pass");
+          const derivedBlockerDetail = blockedInputChecks.length === 1
+            ? `Skipped derived cluster verification because ${blockedInputChecks[0]!.name} was ${blockedInputChecks[0]!.status.toUpperCase()}`
+            : `Skipped derived cluster verification because ${blockedInputChecks.map((check) => `${check.name} was ${check.status.toUpperCase()}`).join(" and ")}`;
 
           if (validationAsset === "ETH") {
             const effectiveBalanceCheck = cluster.effectiveBalance !== null
@@ -838,6 +974,25 @@ export async function verifyClusterIdentity(
                   cluster.effectiveBalance?.toString() ?? "missing",
                   "ETH effective balance must be present, positive, and divisible by 32",
                 );
+
+            if (blockedInputChecks.length > 0) {
+              return identityChecksPromise.then((identityChecks) => [
+                ...baseChecks,
+                ...identityChecks,
+                daoDataCheck,
+                operatorDataCheck,
+                effectiveBalanceCheck,
+                ...createBlockedDerivedChecks(
+                  derivedBlockerDetail,
+                  blockedInputChecks.map((check) => check.name),
+                ),
+              ]);
+            }
+
+            const operators = subgraphAccounting.operators.map(normalizeOperatorValue);
+            const daoValues = normalizeDaoValues(subgraphAccounting.daoValues!);
+            const selectedOperators = selectOperatorAccounting(validationAsset, operators);
+            const selectedDaoValues = selectDaoAccounting(validationAsset, daoValues);
 
             const viewsBalancePromise = views.getClusterBalance(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
             const viewsBurnRatePromise = views.getClusterBurnRate(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
@@ -872,6 +1027,8 @@ export async function verifyClusterIdentity(
               return [
                 ...baseChecks,
                 ...identityChecks,
+                daoDataCheck,
+                operatorDataCheck,
                 effectiveBalanceCheck,
                 {
                   name: "currentBalance",
@@ -915,6 +1072,24 @@ export async function verifyClusterIdentity(
             });
           }
 
+          if (blockedInputChecks.length > 0) {
+            return identityChecksPromise.then((identityChecks) => [
+              ...baseChecks,
+              ...identityChecks,
+              daoDataCheck,
+              operatorDataCheck,
+              ...createBlockedDerivedChecks(
+                derivedBlockerDetail,
+                blockedInputChecks.map((check) => check.name),
+              ),
+            ]);
+          }
+
+          const operators = subgraphAccounting.operators.map(normalizeOperatorValue);
+          const daoValues = normalizeDaoValues(subgraphAccounting.daoValues!);
+          const selectedOperators = selectOperatorAccounting(validationAsset, operators);
+          const selectedDaoValues = selectDaoAccounting(validationAsset, daoValues);
+
           const viewsBalancePromise = views.getClusterBalance(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
           const viewsBurnRatePromise = views.getClusterBurnRate(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
           const viewsLiquidatablePromise = views.getClusterLiquidatable(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
@@ -948,6 +1123,8 @@ export async function verifyClusterIdentity(
             return [
               ...baseChecks,
               ...identityChecks,
+              daoDataCheck,
+              operatorDataCheck,
               {
                 name: "currentBalance",
                 status: derivedBalance === viewsBalance ? "pass" : "fail",

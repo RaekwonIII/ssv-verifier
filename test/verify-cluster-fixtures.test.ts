@@ -33,6 +33,9 @@ interface ClusterFixture {
     fee: string;
     feeIndex: string;
     feeIndexBlockNumber: string;
+    feeSSV?: string;
+    feeIndexSSV?: string;
+    feeIndexBlockNumberSSV?: string;
   }>;
   daoValues: {
     networkFee: string;
@@ -40,6 +43,11 @@ interface ClusterFixture {
     networkFeeIndexBlockNumber: string;
     liquidationThreshold: string;
     minimumLiquidationCollateral: string;
+    networkFeeSSV?: string;
+    networkFeeIndexSSV?: string;
+    networkFeeIndexBlockNumberSSV?: string;
+    liquidationThresholdSSV?: string;
+    minimumLiquidationCollateralSSV?: string;
   };
   views: {
     baseline: "success" | "revert";

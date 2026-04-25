@@ -132,3 +132,8 @@
 - Added structured blocked downstream checks with `blockedBy` metadata, narrowed lag-aware downgrades to latest-head derived accounting checks, and aligned batch fallback semantics around `clusterState`.
 - Expanded regression coverage for malformed cluster IDs, not-found snapshots, semantic owner mismatches, baseline state rejection, and malformed discovered batch cluster IDs.
 - Verified the slice with `npx vitest run test/verify-cluster.test.ts test/verify-clusters.test.ts test/subgraph.test.ts`, `npm test`, and `npm run build`.
+2026-04-25 Iteration 7
+- Reviewed the current repository state, progress log, and open GitHub issues #53 through #68, then selected issue #53 as the next unblocked slice after #52.
+- Added explicit selected-surface `daoData` and `operatorData` gates to `verify-cluster`, validating only the on-chain-selected ETH or SSV accounting fields and moving missing operator inputs out of `clusterState` into structured `operatorData` inconclusive outcomes.
+- Updated downstream cluster verification so non-passing `daoData` or `operatorData` results block the four derived checks with `blockedBy` metadata, while preserving the existing identity checks and ETH-only `effectiveBalance` behavior for the follow-up gate slice.
+- Expanded regression coverage for passing SSV selected-surface inputs, missing selected-surface operator inputs, missing selected-surface DAO inputs, and the resulting batch aggregate counts, then verified the slice with `npx vitest run test/verify-cluster.test.ts test/verify-cluster-fixtures.test.ts`, `npm test`, and `npm run build`.
