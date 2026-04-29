@@ -2,6 +2,7 @@ import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
 import { fetchAllSubgraphClusterIds } from "../clients/subgraph.js";
 import { summarizeStatuses, type CheckStatus } from "../status.js";
+import { parseClusterId } from "../domain/cluster-id.js";
 import {
   type ClusterAccountingDebug,
   type ClusterCheckKind,
@@ -44,6 +45,8 @@ export interface VerifyClustersDependencies {
     dependencies?: SingleVerifyClusterDependencies,
   ) => Promise<VerifyClusterFunctionResult>;
 }
+
+const CLUSTER_VERIFICATION_CONCURRENCY_LIMIT = 10;
 
 export interface VerifyClustersRunResult {
   selectedNetwork: RuntimeConfig["selectedNetwork"];
@@ -112,6 +115,60 @@ function normalizeClusterResult(result: VerifyClusterFunctionResult): VerifyClus
   };
 }
 
+function createMalformedClusterIdResult(
+  network: SingleNetwork,
+  clusterId: string,
+  subgraphSource: "primary" | "fallback",
+  error: Error,
+): VerifyClusterBatchResult {
+  return {
+    network,
+    clusterId,
+    subgraphSource,
+    freshness: {
+      indexedBlockNumber: 0,
+      chainHeadBlockNumber: 0,
+      lagBlocks: 0,
+      status: "fresh",
+    },
+    status: "fail",
+    checks: [
+      {
+        name: "clusterState",
+        kind: "input",
+        status: "fail",
+        reason: "invalid",
+        classification: "mismatch",
+        detail: `Discovered cluster id was malformed: ${error.message}`,
+        subgraphValue: clusterId,
+      },
+    ],
+    accountingDebug: { failureStage: "clusterState" },
+  };
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex]!, currentIndex);
+    }
+  }
+
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  return results;
+}
+
 async function verifyAllClustersForNetwork(
   config: RuntimeConfig,
   network: SingleNetwork,
@@ -131,8 +188,21 @@ async function verifyAllClustersForNetwork(
     selectedNetwork: network,
     activeNetworks: [network],
   } satisfies RuntimeConfig;
-  const clusterResults = await Promise.all(
-    clusterListing.clusterIds.map(async (clusterId) => {
+  const clusterResults = await mapWithConcurrency(
+    clusterListing.clusterIds,
+    CLUSTER_VERIFICATION_CONCURRENCY_LIMIT,
+    async (clusterId) => {
+      try {
+        parseClusterId(clusterId);
+      } catch (error) {
+        return createMalformedClusterIdResult(
+          network,
+          clusterId,
+          clusterListing.source,
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+
       try {
         return normalizeClusterResult(await verifyCluster(singleNetworkConfig, clusterId, { fetchFn }));
       } catch (error) {
@@ -162,7 +232,7 @@ async function verifyAllClustersForNetwork(
           errorDetail: error instanceof Error ? error.message : String(error),
         } satisfies VerifyClusterBatchResult;
       }
-    }),
+    },
   );
   const totalChecks = clusterResults.reduce((sum, result) => sum + result.checks.length, 0);
   const passedChecks = clusterResults.reduce(
