@@ -8,7 +8,7 @@
     "status": "success"
   },
   "reads": {
-    "getBalance": "0",
+    "getBalance": "100",
     "getBurnRate": "0",
     "isLiquidatable": false,
     "getLiquidationThresholdPeriod": "1",

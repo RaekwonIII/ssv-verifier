@@ -35,8 +35,8 @@
       "status": "pass",
       "reason": "matched",
       "detail": "Derived balance matched pinned Views at block 19000000",
-      "localValue": "0",
-      "viewsValue": "0"
+      "localValue": "64",
+      "viewsValue": "64"
     },
     {
       "name": "burnRate",
@@ -69,7 +69,7 @@
   "accountingDebug": {
     "selectedAsset": "ETH",
     "intermediates": {
-      "currentBalance": "0",
+      "currentBalance": "64",
       "burnRate": "0",
       "liquidationCollateral": "1",
       "liquidatable": false
