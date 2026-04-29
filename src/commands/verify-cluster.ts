@@ -1386,21 +1386,35 @@ export async function verifyClusterIdentity(
   };
 }
 
+function renderCheckValueFragment(check: ClusterIdentityCheckResult): string {
+  if (check.reason === "blocked") {
+    return "";
+  }
+
+  const localValue = check.subgraphValue !== "blocked" ? ` local=${check.subgraphValue}` : "";
+  const viewsValue = check.viewsValue !== undefined ? ` views=${check.viewsValue}` : "";
+
+  return `${localValue}${viewsValue}`;
+}
+
 export function renderVerifyClusterSummary(result: VerifyClusterResult): string {
   const lines = [
     `verify-cluster ${result.status.toUpperCase()}`,
     `network: ${result.network}`,
     `cluster: ${result.clusterId}`,
     `subgraph source: ${result.subgraphSource}`,
-    `subgraph freshness: ${result.freshness.status} (indexed=${result.freshness.indexedBlockNumber}, chainHead=${result.freshness.chainHeadBlockNumber}, lag=${result.freshness.lagBlocks})`,
+    `verification block: ${result.freshness.indexedBlockNumber}`,
+    `chain head: ${result.freshness.chainHeadBlockNumber}`,
+    `subgraph lag: ${result.freshness.lagBlocks} block(s) (${result.freshness.status})`,
+    "checks:",
   ];
 
-    for (const check of result.checks) {
-      const values = check.viewsValue
-        ? `expected=${check.subgraphValue}; views=${check.viewsValue}`
-        : `subgraph=${check.subgraphValue}`;
-    const blockedBy = check.blockedBy?.length ? `; blockedBy=${check.blockedBy.join(",")}` : "";
-    lines.push(`- ${check.name}: ${check.status.toUpperCase()} [${check.classification}] (${values}; ${check.detail}${blockedBy})`);
+  for (const check of result.checks) {
+    const blockedBy = check.blockedBy?.length ? ` blockedBy=${check.blockedBy.join(",")}` : "";
+    const values = renderCheckValueFragment(check);
+    lines.push(
+      `- ${check.name}: ${check.status.toUpperCase()} kind=${check.kind} reason=${check.reason}${blockedBy}${values} detail="${check.detail}"`,
+    );
   }
 
   return lines.join("\n");

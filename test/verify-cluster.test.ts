@@ -512,7 +512,21 @@ describe("verifyClusterIdentity", () => {
       viewsValue: "false",
       status: "pass",
     });
-    expect(renderVerifyClusterSummary(result)).toContain("verify-cluster PASS");
+    const textSummary = renderVerifyClusterSummary(result);
+    expect(textSummary.split("\n").slice(0, 8)).toEqual([
+      "verify-cluster PASS",
+      "network: hoodi",
+      `cluster: ${clusterId}`,
+      "subgraph source: primary",
+      "verification block: 20",
+      "chain head: 20",
+      "subgraph lag: 0 block(s) (fresh)",
+      "checks:",
+    ]);
+    expect(textSummary).toContain("- clusterState: PASS kind=input reason=matched local=");
+    expect(textSummary).toContain("- currentBalance: PASS kind=derived reason=matched local=30 views=30");
+    expect(textSummary).not.toContain("accountingDebug");
+    expect(textSummary).not.toContain("classification");
     const publicJson = JSON.parse(renderVerifyClusterJson(result));
     expect(publicJson).toMatchObject({
       network: "hoodi",
@@ -817,7 +831,7 @@ describe("verifyClusterIdentity", () => {
       status: "fail",
       classification: "mismatch",
     });
-    expect(renderVerifyClusterSummary(result)).toContain("currentBalance: FAIL");
+    expect(renderVerifyClusterSummary(result)).toContain("currentBalance: FAIL kind=derived reason=mismatch local=30 views=29");
     expect(JSON.parse(renderVerifyClusterJson(result))).toMatchObject({
       network: "hoodi",
       clusterId,
@@ -1678,7 +1692,8 @@ describe("verifyClusterIdentity", () => {
       subgraphValue: "20",
       viewsValue: "24",
     });
-    expect(renderVerifyClusterSummary(result)).toContain("subgraph freshness: lagging");
+    expect(renderVerifyClusterSummary(result)).toContain("subgraph lag: 4 block(s) (lagging)");
+    expect(renderVerifyClusterSummary(result)).toContain("subgraphLag: WARN kind=operational reason=lagging local=20 views=24");
   });
 
   it("reports a liquidatable mismatch", async () => {
