@@ -157,6 +157,7 @@ describe("parseCliArgs verify-cluster", () => {
       network: "hoodi",
       clusterId,
       output: "text",
+      quiet: false,
     });
   });
 
@@ -166,6 +167,7 @@ describe("parseCliArgs verify-cluster", () => {
       network: "hoodi",
       clusterId,
       output: "json",
+      quiet: false,
     });
   });
 

@@ -1,5 +1,6 @@
 import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
+import type { ProgressReporter } from "../ui/progress.js";
 import { fetchAllSubgraphClusterIds } from "../clients/subgraph.js";
 import { summarizeStatuses, type CheckStatus } from "../status.js";
 import { parseClusterId } from "../domain/cluster-id.js";
@@ -183,11 +184,13 @@ async function verifyAllClustersForNetwork(
   config: RuntimeConfig,
   network: SingleNetwork,
   dependencies: VerifyClustersDependencies,
+  reporter?: ProgressReporter,
 ): Promise<VerifyClustersResult> {
   const fetchFn = dependencies.fetchFn ?? fetch;
   const fetchClusterIds = dependencies.fetchClusterIds ?? fetchAllSubgraphClusterIds;
   const verifyCluster = dependencies.verifyCluster ?? verifyClusterIdentity;
   const networkConfig = config.networks[network];
+  const discoverySpinner = reporter?.spinner(`Fetching cluster ids for ${network}…`);
   const clusterListing = await fetchClusterIds(
     networkConfig.subgraphPrimaryUrl,
     networkConfig.subgraphFallbackUrl,
@@ -195,6 +198,7 @@ async function verifyAllClustersForNetwork(
   ).catch((error: unknown) => error instanceof Error ? error : new Error(String(error)));
 
   if (clusterListing instanceof Error) {
+    discoverySpinner?.fail(`Failed to fetch cluster ids for ${network}: ${clusterListing.message}`);
     return {
       network,
       status: "inconclusive",
@@ -211,57 +215,66 @@ async function verifyAllClustersForNetwork(
     };
   }
 
+  discoverySpinner?.succeed(`Discovered ${clusterListing.clusterIds.length} clusters on ${network}`);
+
   const singleNetworkConfig = {
     ...config,
     selectedNetwork: network,
     activeNetworks: [network],
   } satisfies RuntimeConfig;
+  const total = clusterListing.clusterIds.length;
+  const bar = total > 0 ? reporter?.bar(total, `Verifying ${network} clusters`) : undefined;
   const clusterResults = await mapWithConcurrency(
     clusterListing.clusterIds,
     CLUSTER_VERIFICATION_CONCURRENCY_LIMIT,
     async (clusterId) => {
-      try {
-        parseClusterId(clusterId);
-      } catch (error) {
-        return createMalformedClusterIdResult(
-          network,
-          clusterId,
-          clusterListing.source,
-          error instanceof Error ? error : new Error(String(error)),
-        );
-      }
+      const result = await (async (): Promise<VerifyClusterBatchResult> => {
+        try {
+          parseClusterId(clusterId);
+        } catch (error) {
+          return createMalformedClusterIdResult(
+            network,
+            clusterId,
+            clusterListing.source,
+            error instanceof Error ? error : new Error(String(error)),
+          );
+        }
 
-      try {
-        return normalizeClusterResult(await verifyCluster(singleNetworkConfig, clusterId, { fetchFn }));
-      } catch (error) {
-        return {
-          network,
-          clusterId,
-          subgraphSource: clusterListing.source,
-          freshness: {
-            indexedBlockNumber: 0,
-            chainHeadBlockNumber: 0,
-            lagBlocks: 0,
-            status: "fresh",
-          },
-          status: "inconclusive",
-          checks: [
-            {
-              name: "clusterState",
-              kind: "input",
-              status: "inconclusive",
-              reason: "unavailable",
-              classification: "inconclusive",
-              detail: error instanceof Error ? error.message : String(error),
-              subgraphValue: clusterId,
+        try {
+          return normalizeClusterResult(await verifyCluster(singleNetworkConfig, clusterId, { fetchFn }));
+        } catch (error) {
+          return {
+            network,
+            clusterId,
+            subgraphSource: clusterListing.source,
+            freshness: {
+              indexedBlockNumber: 0,
+              chainHeadBlockNumber: 0,
+              lagBlocks: 0,
+              status: "fresh",
             },
-          ],
-          accountingDebug: { failureStage: "clusterState" },
-          errorDetail: error instanceof Error ? error.message : String(error),
-        } satisfies VerifyClusterBatchResult;
-      }
+            status: "inconclusive",
+            checks: [
+              {
+                name: "clusterState",
+                kind: "input",
+                status: "inconclusive",
+                reason: "unavailable",
+                classification: "inconclusive",
+                detail: error instanceof Error ? error.message : String(error),
+                subgraphValue: clusterId,
+              },
+            ],
+            accountingDebug: { failureStage: "clusterState" },
+            errorDetail: error instanceof Error ? error.message : String(error),
+          } satisfies VerifyClusterBatchResult;
+        }
+      })();
+      bar?.tick();
+      return result;
     },
   );
+  bar?.stop();
   const totalChecks = clusterResults.reduce((sum, result) => sum + result.checks.length, 0);
   const passedChecks = clusterResults.reduce(
     (sum, result) => sum + result.checks.filter((check) => check.status === "pass").length,
@@ -298,22 +311,32 @@ async function verifyAllClustersForNetwork(
 export async function verifyAllClusters(
   config: RuntimeConfig,
   dependencies: VerifyClustersDependencies = {},
+  reporter?: ProgressReporter,
 ): Promise<VerifyClustersResult> {
   if (config.activeNetworks.length !== 1) {
     throw new Error("verify-clusters requires a single network target, not --network both.");
   }
 
   const network = config.activeNetworks[0]!;
-  return verifyAllClustersForNetwork(config, network, dependencies);
+  return verifyAllClustersForNetwork(config, network, dependencies, reporter);
 }
 
 export async function verifyClusters(
   config: RuntimeConfig,
   dependencies: VerifyClustersDependencies = {},
+  reporter?: ProgressReporter,
 ): Promise<VerifyClustersRunResult> {
-  const networkResults = await Promise.all(
-    config.activeNetworks.map((network) => verifyAllClustersForNetwork(config, network, dependencies)),
-  );
+  let networkResults: VerifyClustersResult[];
+  if (reporter) {
+    networkResults = [];
+    for (const network of config.activeNetworks) {
+      networkResults.push(await verifyAllClustersForNetwork(config, network, dependencies, reporter));
+    }
+  } else {
+    networkResults = await Promise.all(
+      config.activeNetworks.map((network) => verifyAllClustersForNetwork(config, network, dependencies)),
+    );
+  }
   const totalClusters = networkResults.reduce((sum, result) => sum + result.totalClusters, 0);
   const totalChecks = networkResults.reduce((sum, result) => sum + result.totalChecks, 0);
   const passedChecks = networkResults.reduce((sum, result) => sum + result.passedChecks, 0);

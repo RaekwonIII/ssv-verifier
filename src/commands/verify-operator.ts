@@ -1,5 +1,6 @@
 import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
+import type { ProgressReporter } from "../ui/progress.js";
 import { fetchSubgraphOperator, type SubgraphOperatorDetailsRecord } from "../clients/subgraph.js";
 import { createNetworkRpcPool } from "../clients/rpc-pool.js";
 import { createViewsAdapter, type ViewsOperatorDetails } from "../clients/views.js";
@@ -86,6 +87,7 @@ export async function verifyOperatorState(
   config: RuntimeConfig,
   operatorId: string,
   dependencies: VerifyOperatorDependencies = {},
+  reporter?: ProgressReporter,
 ): Promise<VerifyOperatorResult> {
   if (config.activeNetworks.length !== 1) {
     throw new Error("verify-operator requires a single network target, not --network both.");
@@ -94,24 +96,34 @@ export async function verifyOperatorState(
   const fetchFn = dependencies.fetchFn ?? fetch;
   const network = config.activeNetworks[0]!;
   const networkConfig = config.networks[network];
-  const subgraphOperator = await fetchSubgraphOperator(
-    networkConfig.subgraphPrimaryUrl,
-    networkConfig.subgraphFallbackUrl,
-    operatorId,
-    fetchFn,
-  );
-  const viewsOperatorId = BigInt(operatorId);
-  const rpcClient = createNetworkRpcPool(config, networkConfig, fetchFn);
-  const viewsAdapter = createViewsAdapter(rpcClient, networkConfig.viewsAddress);
-  const viewsDetails = await viewsAdapter.getOperatorDetails(viewsOperatorId);
+  const spinner = reporter?.spinner(`Fetching operator ${operatorId} from subgraph…`);
+  try {
+    const subgraphOperator = await fetchSubgraphOperator(
+      networkConfig.subgraphPrimaryUrl,
+      networkConfig.subgraphFallbackUrl,
+      operatorId,
+      fetchFn,
+    );
+    spinner?.update(`Reading operator ${operatorId} from Views contract…`);
+    const viewsOperatorId = BigInt(operatorId);
+    const rpcClient = createNetworkRpcPool(config, networkConfig, fetchFn);
+    const viewsAdapter = createViewsAdapter(rpcClient, networkConfig.viewsAddress);
+    const viewsDetails = await viewsAdapter.getOperatorDetails(viewsOperatorId);
+    spinner?.update(`Comparing operator ${operatorId}…`);
 
-  return compareOperatorAgainstViews(
-    network,
-    operatorId,
-    subgraphOperator.operator,
-    viewsDetails,
-    subgraphOperator.source,
-  );
+    const result = compareOperatorAgainstViews(
+      network,
+      operatorId,
+      subgraphOperator.operator,
+      viewsDetails,
+      subgraphOperator.source,
+    );
+    spinner?.succeed(`Verified operator ${operatorId} on ${network}`);
+    return result;
+  } catch (error) {
+    spinner?.fail(`Failed to verify operator ${operatorId}: ${error instanceof Error ? error.message : String(error)}`);
+    throw error;
+  }
 }
 
 export function renderVerifyOperatorSummary(result: VerifyOperatorResult): string {

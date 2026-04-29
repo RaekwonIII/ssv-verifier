@@ -1,5 +1,6 @@
 import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
+import type { ProgressReporter } from "../ui/progress.js";
 import { fetchAllSubgraphOperatorDetails } from "../clients/subgraph.js";
 import { createNetworkRpcPool } from "../clients/rpc-pool.js";
 import { createViewsAdapter, type ViewsAdapter } from "../clients/views.js";
@@ -45,6 +46,7 @@ async function verifyAllOperatorsForNetwork(
   config: RuntimeConfig,
   network: SingleNetwork,
   dependencies: VerifyOperatorsDependencies,
+  reporter?: ProgressReporter,
 ): Promise<VerifyOperatorsResult> {
   const fetchFn = dependencies.fetchFn ?? fetch;
   const fetchOperatorDetails = dependencies.fetchOperatorDetails ?? fetchAllSubgraphOperatorDetails;
@@ -54,46 +56,60 @@ async function verifyAllOperatorsForNetwork(
       createNetworkRpcPool(config, { ...networkConfig, rpcUrls: urls }, innerFetchFn),
       viewsAddress,
     ));
-  const operatorListing = await fetchOperatorDetails(
-    networkConfig.subgraphPrimaryUrl,
-    networkConfig.subgraphFallbackUrl,
-    fetchFn,
-  );
+  const discoverySpinner = reporter?.spinner(`Fetching operator details for ${network}…`);
+  let operatorListing: Awaited<ReturnType<typeof fetchOperatorDetails>>;
+  try {
+    operatorListing = await fetchOperatorDetails(
+      networkConfig.subgraphPrimaryUrl,
+      networkConfig.subgraphFallbackUrl,
+      fetchFn,
+    );
+  } catch (error) {
+    discoverySpinner?.fail(`Failed to fetch operator details for ${network}: ${error instanceof Error ? error.message : String(error)}`);
+    throw error;
+  }
+  discoverySpinner?.succeed(`Discovered ${operatorListing.operators.length} operators on ${network}`);
   const viewsAdapter = createViews(networkConfig.rpcUrls, networkConfig.viewsAddress, fetchFn);
+  const total = operatorListing.operators.length;
+  const bar = total > 0 ? reporter?.bar(total, `Verifying ${network} operators`) : undefined;
+  const verifyOne = async (subgraphOperator: typeof operatorListing.operators[number]): Promise<VerifyOperatorBatchResult> => {
+    const operatorId = subgraphOperator.id;
+    try {
+      const viewsDetails = await viewsAdapter.getOperatorDetails(BigInt(operatorId));
+      return compareOperatorAgainstViews(
+        network,
+        operatorId,
+        subgraphOperator,
+        viewsDetails,
+        operatorListing.source,
+      );
+    } catch (error) {
+      return {
+        network,
+        operatorId,
+        subgraphSource: operatorListing.source,
+        status: "inconclusive",
+        checks: [
+          {
+            name: "operator",
+            status: "inconclusive",
+            detail: error instanceof Error ? error.message : String(error),
+            subgraphValue: "unavailable",
+            viewsValue: "unavailable",
+          },
+        ],
+        errorDetail: error instanceof Error ? error.message : String(error),
+      } satisfies VerifyOperatorBatchResult;
+    }
+  };
   const operatorResults = await Promise.all(
     operatorListing.operators.map(async (subgraphOperator) => {
-      const operatorId = subgraphOperator.id;
-
-      try {
-        const viewsDetails = await viewsAdapter.getOperatorDetails(BigInt(operatorId));
-
-        return compareOperatorAgainstViews(
-          network,
-          operatorId,
-          subgraphOperator,
-          viewsDetails,
-          operatorListing.source,
-        );
-      } catch (error) {
-        return {
-          network,
-          operatorId,
-          subgraphSource: operatorListing.source,
-          status: "inconclusive",
-          checks: [
-            {
-              name: "operator",
-              status: "inconclusive",
-              detail: error instanceof Error ? error.message : String(error),
-              subgraphValue: "unavailable",
-              viewsValue: "unavailable",
-            },
-          ],
-          errorDetail: error instanceof Error ? error.message : String(error),
-        } satisfies VerifyOperatorBatchResult;
-      }
+      const result = await verifyOne(subgraphOperator);
+      bar?.tick();
+      return result;
     }),
   );
+  bar?.stop();
   const totalChecks = operatorResults.reduce((sum, result) => sum + result.checks.length, 0);
   const passedChecks = operatorResults.reduce(
     (sum, result) => sum + result.checks.filter((check) => check.status === "pass").length,
@@ -129,10 +145,19 @@ async function verifyAllOperatorsForNetwork(
 export async function verifyOperators(
   config: RuntimeConfig,
   dependencies: VerifyOperatorsDependencies = {},
+  reporter?: ProgressReporter,
 ): Promise<VerifyOperatorsRunResult> {
-  const networkResults = await Promise.all(
-    config.activeNetworks.map((network) => verifyAllOperatorsForNetwork(config, network, dependencies)),
-  );
+  let networkResults: VerifyOperatorsResult[];
+  if (reporter) {
+    networkResults = [];
+    for (const network of config.activeNetworks) {
+      networkResults.push(await verifyAllOperatorsForNetwork(config, network, dependencies, reporter));
+    }
+  } else {
+    networkResults = await Promise.all(
+      config.activeNetworks.map((network) => verifyAllOperatorsForNetwork(config, network, dependencies)),
+    );
+  }
   const totalOperators = networkResults.reduce((sum, result) => sum + result.totalOperators, 0);
   const totalChecks = networkResults.reduce((sum, result) => sum + result.totalChecks, 0);
   const passedChecks = networkResults.reduce((sum, result) => sum + result.passedChecks, 0);

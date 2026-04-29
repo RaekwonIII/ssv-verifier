@@ -1,5 +1,6 @@
 import type { RuntimeConfig } from "../config/env.js";
 import type { NetworkTarget } from "../config/networks.js";
+import type { ProgressReporter } from "../ui/progress.js";
 import { jsonRpcRequest } from "../clients/json-rpc.js";
 import { fetchSubgraphMeta } from "../clients/subgraph.js";
 import { summarizeStatuses, type CheckStatus } from "../status.js";
@@ -101,10 +102,16 @@ async function runSubgraphCheck(
 export async function runHealthCheck(
   config: RuntimeConfig,
   dependencies: HealthCheckDependencies = {},
+  reporter?: ProgressReporter,
 ): Promise<NetworkHealthResult[]> {
   const fetchFn = dependencies.fetchFn ?? fetch;
 
   const results: NetworkHealthResult[] = [];
+  const totalProbes = config.activeNetworks.reduce(
+    (sum, network) => sum + 2 * config.networks[network].rpcUrls.length + 1,
+    0,
+  );
+  const bar = totalProbes > 0 ? reporter?.bar(totalProbes, "Health checks") : undefined;
 
   for (const network of config.activeNetworks) {
     const networkConfig = config.networks[network];
@@ -112,12 +119,15 @@ export async function runHealthCheck(
 
     for (const rpcUrl of networkConfig.rpcUrls) {
       checks.push(await probeRpcEndpoint(rpcUrl, fetchFn));
+      bar?.tick();
     }
 
     checks.push(await runSubgraphCheck(networkConfig.subgraphPrimaryUrl, networkConfig.subgraphFallbackUrl, fetchFn));
+    bar?.tick();
 
     for (const rpcUrl of networkConfig.rpcUrls) {
       checks.push(await probeViewsEndpoint(rpcUrl, networkConfig.viewsAddress, fetchFn));
+      bar?.tick();
     }
 
     results.push({
@@ -127,6 +137,7 @@ export async function runHealthCheck(
     });
   }
 
+  bar?.stop();
   return results;
 }
 

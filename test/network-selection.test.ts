@@ -62,7 +62,7 @@ function createViewsFetch(
 
 describe("parseCliArgs", () => {
   it("defaults to health-check when no command is provided", () => {
-    expect(parseCliArgs(["--network", "both"])).toEqual({ command: "health-check", network: "both", output: "text" });
+    expect(parseCliArgs(["--network", "both"])).toEqual({ command: "health-check", network: "both", output: "text", quiet: false });
   });
 
   it("rejects unsupported network values", () => {
@@ -74,6 +74,7 @@ describe("parseCliArgs", () => {
       command: "health-check",
       network: "hoodi",
       output: "json",
+      quiet: false,
     });
   });
 
@@ -82,6 +83,7 @@ describe("parseCliArgs", () => {
       command: "verify-network",
       network: "hoodi",
       output: "json",
+      quiet: false,
     });
   });
 
@@ -94,6 +96,7 @@ describe("parseCliArgs", () => {
       command: "verify-clusters",
       network: "hoodi",
       output: "text",
+      quiet: false,
     });
   });
 
@@ -102,6 +105,7 @@ describe("parseCliArgs", () => {
       command: "verify-operators",
       network: "both",
       output: "text",
+      quiet: false,
     });
   });
 

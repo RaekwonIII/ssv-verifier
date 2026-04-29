@@ -10,6 +10,7 @@ import { renderVerifyNetworkJson, renderVerifyNetworkSummary, verifyNetwork } fr
 import { isNetworkTarget, supportedNetworks, type NetworkTarget } from "./config/networks.js";
 import { parseClusterId } from "./domain/cluster-id.js";
 import { exitCodeForStatus, summarizeStatuses } from "./status.js";
+import { createReporter, type ProgressReporter, type UiMode } from "./ui/progress.js";
 
 interface CliArgs {
   command: "health-check" | "verify-network" | "verify-cluster" | "verify-clusters" | "verify-operator" | "verify-operators";
@@ -17,6 +18,7 @@ interface CliArgs {
   clusterId?: string;
   operatorId?: string;
   output: "text" | "json";
+  quiet: boolean;
 }
 
 export function parseCliArgs(argv: string[]): CliArgs {
@@ -25,6 +27,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
   let clusterId: string | undefined;
   let operatorId: string | undefined;
   let output: CliArgs["output"] = "text";
+  let quiet = false;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -93,6 +96,11 @@ export function parseCliArgs(argv: string[]): CliArgs {
       continue;
     }
 
+    if (arg === "--quiet") {
+      quiet = true;
+      continue;
+    }
+
     if (arg === "--output" || arg === "-o") {
       const value = argv[index + 1];
 
@@ -140,9 +148,18 @@ export function parseCliArgs(argv: string[]): CliArgs {
     command,
     network,
     output,
+    quiet,
     ...(clusterId ? { clusterId } : {}),
     ...(operatorId ? { operatorId } : {}),
   };
+}
+
+function selectUiMode(args: CliArgs): UiMode {
+  if (args.output === "json") return "silent";
+  if (args.quiet) return "silent";
+  if (!process.stderr.isTTY) return "silent";
+  if (process.env.CI === "true") return "silent";
+  return "interactive";
 }
 
 export function renderBootstrapSummary(args: CliArgs): string {
@@ -178,6 +195,7 @@ export function printHelp(): void {
     "  -c, --cluster   Cluster identifier for verify-cluster",
     "      --operator  Operator identifier for verify-operator",
     "  -o, --output    Output format for supported commands (text or json)",
+    "      --quiet     Suppress progress UI (spinners and progress bars)",
     "  -h, --help      Show this help text",
   ].join("\n");
 
@@ -185,48 +203,59 @@ export function printHelp(): void {
 }
 
 export async function main(): Promise<void> {
+  let reporter: ProgressReporter | undefined;
+  const sigintHandler = () => {
+    reporter?.dispose();
+    process.exit(130);
+  };
+  process.on("SIGINT", sigintHandler);
   try {
     const args = parseCliArgs(process.argv.slice(2));
-    if (args.command === "health-check") {
-      const results = await runHealthCheck(loadRuntimeConfig(args.network));
-      console.log(args.output === "json" ? renderHealthCheckJson(args.network, results) : renderHealthCheckSummary(results));
-      process.exitCode = exitCodeForStatus(summarizeStatuses(results.map((result) => result.status)));
-      return;
-    }
+    reporter = createReporter(selectUiMode(args));
+    try {
+      if (args.command === "health-check") {
+        const results = await runHealthCheck(loadRuntimeConfig(args.network), {}, reporter);
+        console.log(args.output === "json" ? renderHealthCheckJson(args.network, results) : renderHealthCheckSummary(results));
+        process.exitCode = exitCodeForStatus(summarizeStatuses(results.map((result) => result.status)));
+        return;
+      }
 
-    if (args.command === "verify-network") {
-      const result = await verifyNetwork(loadRuntimeConfig(args.network));
-      console.log(args.output === "json" ? renderVerifyNetworkJson(result) : renderVerifyNetworkSummary(result));
-      process.exitCode = exitCodeForStatus(summarizeStatuses(result.networkResults.map((networkResult) => networkResult.status)));
-      return;
-    }
+      if (args.command === "verify-network") {
+        const result = await verifyNetwork(loadRuntimeConfig(args.network), {}, reporter);
+        console.log(args.output === "json" ? renderVerifyNetworkJson(result) : renderVerifyNetworkSummary(result));
+        process.exitCode = exitCodeForStatus(summarizeStatuses(result.networkResults.map((networkResult) => networkResult.status)));
+        return;
+      }
 
-    if (args.command === "verify-cluster") {
-      const result = await verifyClusterIdentity(loadRuntimeConfig(args.network), args.clusterId ?? "");
-      console.log(args.output === "json" ? renderVerifyClusterJson(result) : renderVerifyClusterSummary(result));
-      process.exitCode = exitCodeForStatus(result.status);
-      return;
-    }
+      if (args.command === "verify-cluster") {
+        const result = await verifyClusterIdentity(loadRuntimeConfig(args.network), args.clusterId ?? "", {}, reporter);
+        console.log(args.output === "json" ? renderVerifyClusterJson(result) : renderVerifyClusterSummary(result));
+        process.exitCode = exitCodeForStatus(result.status);
+        return;
+      }
 
-    if (args.command === "verify-clusters") {
-      const result = await verifyClusters(loadRuntimeConfig(args.network));
-      console.log(args.output === "json" ? renderVerifyClustersJson(result) : renderVerifyClustersSummary(result));
-      process.exitCode = exitCodeForStatus(result.status);
-      return;
-    }
+      if (args.command === "verify-clusters") {
+        const result = await verifyClusters(loadRuntimeConfig(args.network), {}, reporter);
+        console.log(args.output === "json" ? renderVerifyClustersJson(result) : renderVerifyClustersSummary(result));
+        process.exitCode = exitCodeForStatus(result.status);
+        return;
+      }
 
-    if (args.command === "verify-operator") {
-      const result = await verifyOperatorState(loadRuntimeConfig(args.network), args.operatorId ?? "");
-      console.log(args.output === "json" ? renderVerifyOperatorJson(result) : renderVerifyOperatorSummary(result));
-      process.exitCode = exitCodeForStatus(result.status);
-      return;
-    }
+      if (args.command === "verify-operator") {
+        const result = await verifyOperatorState(loadRuntimeConfig(args.network), args.operatorId ?? "", {}, reporter);
+        console.log(args.output === "json" ? renderVerifyOperatorJson(result) : renderVerifyOperatorSummary(result));
+        process.exitCode = exitCodeForStatus(result.status);
+        return;
+      }
 
-    if (args.command === "verify-operators") {
-      const result = await verifyOperators(loadRuntimeConfig(args.network));
-      console.log(args.output === "json" ? renderVerifyOperatorsJson(result) : renderVerifyOperatorsSummary(result));
-      process.exitCode = exitCodeForStatus(result.status);
-      return;
+      if (args.command === "verify-operators") {
+        const result = await verifyOperators(loadRuntimeConfig(args.network), {}, reporter);
+        console.log(args.output === "json" ? renderVerifyOperatorsJson(result) : renderVerifyOperatorsSummary(result));
+        process.exitCode = exitCodeForStatus(result.status);
+        return;
+      }
+    } finally {
+      reporter.dispose();
     }
   } catch (error) {
     if (error instanceof ZodError) {
@@ -242,6 +271,9 @@ export async function main(): Promise<void> {
     console.error(message);
     printHelp();
     process.exitCode = 1;
+  } finally {
+    process.off("SIGINT", sigintHandler);
+    reporter?.dispose();
   }
 }
 

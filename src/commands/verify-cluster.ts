@@ -1,5 +1,6 @@
 import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
+import type { ProgressReporter } from "../ui/progress.js";
 import { createNetworkRpcPool } from "../clients/rpc-pool.js";
 import { fetchPinnedSubgraphClusterSnapshot } from "../clients/subgraph.js";
 import { parseClusterId } from "../domain/cluster-id.js";
@@ -951,6 +952,30 @@ export async function verifyClusterIdentity(
   config: RuntimeConfig,
   clusterId: string,
   dependencies: VerifyClusterDependencies = {},
+  reporter?: ProgressReporter,
+): Promise<VerifyClusterResult> {
+  const spinner = reporter?.spinner(`Verifying cluster ${clusterId}…`);
+  try {
+    const result = await runClusterIdentityVerification(config, clusterId, dependencies, spinner);
+    if (result.status === "pass") {
+      spinner?.succeed(`Cluster ${clusterId} verified (PASS)`);
+    } else if (result.status === "fail") {
+      spinner?.fail(`Cluster ${clusterId} FAILED verification`);
+    } else {
+      spinner?.stop();
+    }
+    return result;
+  } catch (error) {
+    spinner?.fail(`Failed to verify cluster ${clusterId}: ${error instanceof Error ? error.message : String(error)}`);
+    throw error;
+  }
+}
+
+async function runClusterIdentityVerification(
+  config: RuntimeConfig,
+  clusterId: string,
+  dependencies: VerifyClusterDependencies,
+  spinner: import("../ui/progress.js").Spinner | undefined,
 ): Promise<VerifyClusterResult> {
   if (config.activeNetworks.length !== 1) {
     throw new Error("verify-cluster requires a single network target, not --network both.");
@@ -982,6 +1007,7 @@ export async function verifyClusterIdentity(
     );
   }
 
+  spinner?.update(`Fetching subgraph snapshot for cluster ${clusterId}…`);
   const subgraphAccounting = await fetchPinnedSubgraphClusterSnapshot(
     networkConfig.subgraphPrimaryUrl,
     networkConfig.subgraphFallbackUrl,
@@ -1102,6 +1128,7 @@ export async function verifyClusterIdentity(
     );
   }
 
+  spinner?.update(`Reading on-chain state for cluster ${clusterId}…`);
   const views = createViewsAdapter(rpcClient, networkConfig.viewsAddress);
   const verificationBlockNumber = BigInt(subgraphAccounting.indexedBlockNumber);
   const verificationBlockTag = `0x${verificationBlockNumber.toString(16)}`;

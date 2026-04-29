@@ -1,5 +1,6 @@
 import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
+import type { Bar, ProgressReporter } from "../ui/progress.js";
 import { createNetworkRpcPool, type RpcClient } from "../clients/rpc-pool.js";
 import { fetchSubgraphDaoValues } from "../clients/subgraph.js";
 import { createViewsAdapter, type FeeAsset } from "../clients/views.js";
@@ -145,6 +146,7 @@ async function verifySingleNetwork(
   config: RuntimeConfig,
   network: SingleNetwork,
   dependencies: VerifyNetworkDependencies,
+  bar?: Bar,
 ): Promise<VerifyNetworkResult> {
   const fetchFn = dependencies.fetchFn ?? fetch;
   const fetchDaoValues = dependencies.fetchDaoValues ?? fetchSubgraphDaoValues;
@@ -156,10 +158,12 @@ async function verifySingleNetwork(
     networkConfig.daoAddress,
     fetchFn,
   );
-  const assetResults = await Promise.all([
-    verifyNetworkForAsset("ETH", rpcClient, networkConfig.viewsAddress, subgraphDaoValues.daoValues),
-    verifyNetworkForAsset("SSV", rpcClient, networkConfig.viewsAddress, subgraphDaoValues.daoValues),
-  ]);
+  bar?.tick();
+  const ethResult = await verifyNetworkForAsset("ETH", rpcClient, networkConfig.viewsAddress, subgraphDaoValues.daoValues);
+  bar?.tick();
+  const ssvResult = await verifyNetworkForAsset("SSV", rpcClient, networkConfig.viewsAddress, subgraphDaoValues.daoValues);
+  bar?.tick();
+  const assetResults = [ethResult, ssvResult];
 
   return {
     network,
@@ -173,10 +177,22 @@ async function verifySingleNetwork(
 export async function verifyNetwork(
   config: RuntimeConfig,
   dependencies: VerifyNetworkDependencies = {},
+  reporter?: ProgressReporter,
 ): Promise<VerifyNetworkRunResult> {
-  const networkResults = await Promise.all(
-    config.activeNetworks.map((network) => verifySingleNetwork(config, network, dependencies)),
-  );
+  const totalSteps = config.activeNetworks.length * 3;
+  const bar = totalSteps > 0 ? reporter?.bar(totalSteps, "Verifying network constants") : undefined;
+  let networkResults: VerifyNetworkResult[];
+  if (reporter) {
+    networkResults = [];
+    for (const network of config.activeNetworks) {
+      networkResults.push(await verifySingleNetwork(config, network, dependencies, bar));
+    }
+  } else {
+    networkResults = await Promise.all(
+      config.activeNetworks.map((network) => verifySingleNetwork(config, network, dependencies)),
+    );
+  }
+  bar?.stop();
 
   return {
     selectedNetwork: config.selectedNetwork,

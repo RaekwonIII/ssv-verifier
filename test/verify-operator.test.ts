@@ -24,6 +24,7 @@ describe("parseCliArgs verify-operator", () => {
       network: "hoodi",
       operatorId: "17",
       output: "json",
+      quiet: false,
     });
   });
 });
