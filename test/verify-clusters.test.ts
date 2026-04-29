@@ -79,6 +79,21 @@ describe("verifyAllClusters", () => {
       network: "hoodi",
       subgraphSource: "primary",
       status: "fail",
+      summary: {
+        rootCauses: expect.objectContaining({
+          clusterState: 0,
+          assetType: 0,
+          daoData: 0,
+          operatorData: 0,
+          effectiveBalance: 0,
+          owner: 0,
+          operatorIds: 0,
+          validatorCount: 0,
+          active: 0,
+        }),
+        operational: { subgraphLag: 0 },
+        discovery: { clusterListing: 0 },
+      },
       totalClusters: 2,
       totalChecks: 3,
       passedChecks: 2,
@@ -133,6 +148,11 @@ describe("verifyAllClusters", () => {
     expect(result).toMatchObject({
       selectedNetwork: "both",
       status: "fail",
+      summary: expect.objectContaining({
+        rootCauses: expect.objectContaining({ owner: 2 }),
+        operational: { subgraphLag: 0 },
+        discovery: { clusterListing: 0 },
+      }),
       totalClusters: 2,
       totalChecks: 2,
       passedChecks: 0,
@@ -149,6 +169,9 @@ describe("verifyAllClusters", () => {
       selectedNetwork: "both",
       status: "fail",
       totalClusters: 2,
+      summary: expect.objectContaining({
+        rootCauses: expect.objectContaining({ owner: 2 }),
+      }),
       networkResults: [
         {
           network: "hoodi",
@@ -351,6 +374,7 @@ describe("verifyAllClusters", () => {
     });
 
     await Promise.resolve();
+    await Promise.resolve();
     expect(started).toEqual(ids.slice(0, 10));
     expect(maxInFlight.value).toBe(10);
 
@@ -426,6 +450,39 @@ describe("verifyAllClusters", () => {
     const result = await runPromise;
 
     expect(result.networkResults.map((entry) => entry.network)).toEqual(["hoodi", "mainnet"]);
+  });
+
+
+
+  it("records network-level listing failures as discovery summary failures", async () => {
+    const config = loadRuntimeConfig("hoodi", baseEnv);
+    const result = await verifyAllClusters(config, {
+      fetchClusterIds: async () => {
+        throw new Error("listing unavailable");
+      },
+    });
+
+    expect(result).toMatchObject({
+      network: "hoodi",
+      status: "inconclusive",
+      errorDetail: "listing unavailable",
+      totalClusters: 0,
+      summary: {
+        rootCauses: {
+          clusterState: 0,
+          assetType: 0,
+          daoData: 0,
+          operatorData: 0,
+          effectiveBalance: 0,
+          owner: 0,
+          operatorIds: 0,
+          validatorCount: 0,
+          active: 0,
+        },
+        operational: { subgraphLag: 0 },
+        discovery: { clusterListing: 1 },
+      },
+    });
   });
 
 });
