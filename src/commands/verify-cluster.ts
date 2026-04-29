@@ -348,13 +348,6 @@ function createFreshness(indexedBlockNumber: bigint, chainHeadBlockNumber: bigin
   };
 }
 
-function applyFreshnessClassification(
-  checks: ClusterIdentityCheckResult[],
-  _freshness: SubgraphFreshness,
-): ClusterIdentityCheckResult[] {
-  return checks;
-}
-
 function createSubgraphLagCheck(freshness: SubgraphFreshness): ClusterIdentityCheckResult {
   const withinBuffer = freshness.lagBlocks <= 3;
 
@@ -1373,7 +1366,7 @@ export async function verifyClusterIdentity(
         });
       })();
 
-  const classifiedChecks = applyFreshnessClassification(verification.checks.filter(isPresentCheck), freshness);
+  const classifiedChecks = verification.checks.filter(isPresentCheck);
 
   return {
     network,
