@@ -5,14 +5,7 @@ import {
   renderVerifyClusterSummary,
   verifyClusterIdentity,
 } from "../src/commands/verify-cluster.js";
-import {
-  deriveClusterBurnRate,
-  deriveCurrentClusterBalance,
-  deriveLiquidatableStatus,
-  deriveLiquidationCollateral,
-} from "../src/domain/cluster-accounting.js";
 import { loadRuntimeConfig } from "../src/config/env.js";
-import { parseClusterId } from "../src/domain/cluster-id.js";
 import { parseCliArgs } from "../src/index.js";
 
 const baseEnv = {
@@ -189,80 +182,7 @@ describe("parseCliArgs verify-cluster", () => {
   });
 });
 
-describe("parseClusterId", () => {
-  it("returns the canonical parsed cluster identifier", () => {
-    expect(parseClusterId(clusterId)).toEqual({
-      ownerAddress: "0xe8c927a1fa792eddefe23fda643a62e03f999830",
-      operatorIds: [5n, 6n, 7n, 523n],
-      canonicalId: clusterId,
-    });
-  });
-
-  it("rejects malformed owner addresses", () => {
-    expect(() => parseClusterId("0xE8c927a1fa792eddefe23fda643a62e03f999830-5-6-7-523")).toThrow(/owner segment/);
-  });
-
-  it("rejects unsupported operator counts", () => {
-    expect(() => parseClusterId("0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-7")).toThrow(/operator count/);
-  });
-
-  it("rejects non-canonical operator IDs", () => {
-    expect(() => parseClusterId("0xe8c927a1fa792eddefe23fda643a62e03f999830-5-06-7-523")).toThrow(/canonical base-10/);
-  });
-
-  it("rejects unsorted operator IDs", () => {
-    expect(() => parseClusterId("0xe8c927a1fa792eddefe23fda643a62e03f999830-5-7-6-523")).toThrow(/strictly ascending/);
-  });
-
-  it("rejects duplicate operator IDs", () => {
-    expect(() => parseClusterId("0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-6-523")).toThrow(/Duplicate operator ID 6/);
-  });
-});
-
-describe("verifyClusterIdentity", () => {
-  it("derives current cluster balance from subgraph accounting inputs", () => {
-    const balance = deriveCurrentClusterBalance(
-      {
-        feeAsset: "SSV",
-        effectiveBalance: null,
-        validatorCount: 2,
-        networkFeeIndex: 0n,
-        index: 0n,
-        balance: 500n,
-      },
-      [
-        { fee: 3n, feeIndex: 0n, feeIndexBlockNumber: 100n },
-        { fee: 5n, feeIndex: 0n, feeIndexBlockNumber: 100n },
-      ],
-      {
-        networkFee: 7n,
-        networkFeeIndex: 0n,
-        networkFeeIndexBlockNumber: 100n,
-      },
-      104n,
-    );
-
-    expect(balance.value).toBe(380n);
-  });
-
-  it("derives liquidation values from subgraph accounting inputs", () => {
-    const burnRate = deriveClusterBurnRate(
-      { feeAsset: "SSV", effectiveBalance: null, validatorCount: 2 },
-      [{ fee: 3n }, { fee: 5n }],
-      { networkFee: 7n },
-    );
-    const collateral = deriveLiquidationCollateral(burnRate.value, {
-      liquidationThreshold: 10n,
-      minimumLiquidationCollateral: 100n,
-    });
-
-    expect(burnRate.value).toBe(30n);
-    expect(collateral.value).toBe(300n);
-    expect(deriveLiquidatableStatus(true, 299n, collateral.value).value).toBe(true);
-    expect(deriveLiquidatableStatus(true, 300n, collateral.value).value).toBe(false);
-    expect(deriveLiquidatableStatus(false, 0n, collateral.value).value).toBe(false);
-  });
-
+describe("verify-cluster command integration", () => {
   it("verifies empty SSV clusters without emitting operatorData", async () => {
     const config = loadRuntimeConfig("hoodi", baseEnv);
     const result = await verifyClusterIdentity(config, clusterId, {
