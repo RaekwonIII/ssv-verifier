@@ -75,17 +75,13 @@ export async function verifyOperatorState(
   );
   const viewsOperatorId = BigInt(operatorId);
   const viewsAdapter = createViewsAdapter(networkConfig.rpcUrl, networkConfig.viewsAddress, fetchFn);
-  const [viewsEthFee, viewsSsvFee, viewsDetails] = await Promise.all([
-    viewsAdapter.getOperatorFee("ETH", viewsOperatorId),
-    viewsAdapter.getOperatorFee("SSV", viewsOperatorId),
-    viewsAdapter.getOperatorDetails(viewsOperatorId),
-  ]);
+  const viewsDetails = await viewsAdapter.getOperatorDetails(viewsOperatorId);
   const activeSubgraphValue = subgraphOperator.operator.removed === null
     ? null
     : String(!subgraphOperator.operator.removed);
   const checks: OperatorCheckResult[] = [
-    createComparableCheck("feeETH", subgraphOperator.operator.fee, viewsEthFee.toString(), "Operator ETH fee"),
-    createComparableCheck("feeSSV", subgraphOperator.operator.feeSSV, viewsSsvFee.toString(), "Operator SSV fee"),
+    createComparableCheck("feeETH", subgraphOperator.operator.fee, viewsDetails.feeETH.toString(), "Operator ETH fee"),
+    createComparableCheck("feeSSV", subgraphOperator.operator.feeSSV, viewsDetails.feeSSV.toString(), "Operator SSV fee"),
     createComparableCheck("validatorCount", subgraphOperator.operator.validatorCount, String(viewsDetails.validatorCount), "Operator validator count"),
     createComparableCheck("active", activeSubgraphValue, String(viewsDetails.active), "Operator active flag"),
   ];

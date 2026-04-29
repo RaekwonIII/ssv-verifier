@@ -13,9 +13,8 @@ const baseEnv = {
 };
 
 const viewsInterface = new Interface([
-  "function getOperatorFee(uint64 operatorId) view returns (uint256 fee)",
-  "function getOperatorFeeSSV(uint64 operatorId) view returns (uint256 fee)",
   "function getOperatorById(uint64 operatorId) view returns (address owner, uint256 fee, uint32 validatorCount, address whitelistedAddress, bool isPrivate, bool active)",
+  "function getOperatorByIdSSV(uint64 operatorId) view returns (address owner, uint256 fee, uint32 validatorCount, address whitelistedAddress, bool isPrivate, bool active)",
 ]);
 
 describe("parseCliArgs verify-operator", () => {
@@ -50,15 +49,20 @@ describe("verifyOperatorState", () => {
 
         const result = (() => {
           switch (transaction.name) {
-            case "getOperatorFee":
-              return viewsInterface.encodeFunctionResult("getOperatorFee", [25n]);
-            case "getOperatorFeeSSV":
-              return viewsInterface.encodeFunctionResult("getOperatorFeeSSV", [30n]);
             case "getOperatorById":
               return viewsInterface.encodeFunctionResult("getOperatorById", [
                 "0x00000000000000000000000000000000000000aa",
                 25n,
-                8,
+                5,
+                "0x00000000000000000000000000000000000000bb",
+                false,
+                true,
+              ]);
+            case "getOperatorByIdSSV":
+              return viewsInterface.encodeFunctionResult("getOperatorByIdSSV", [
+                "0x00000000000000000000000000000000000000aa",
+                30n,
+                3,
                 "0x00000000000000000000000000000000000000bb",
                 false,
                 true,
@@ -131,15 +135,20 @@ describe("verifyOperatorState", () => {
 
         const result = (() => {
           switch (transaction.name) {
-            case "getOperatorFee":
-              return viewsInterface.encodeFunctionResult("getOperatorFee", [24n]);
-            case "getOperatorFeeSSV":
-              return viewsInterface.encodeFunctionResult("getOperatorFeeSSV", [31n]);
             case "getOperatorById":
               return viewsInterface.encodeFunctionResult("getOperatorById", [
                 "0x00000000000000000000000000000000000000aa",
                 24n,
-                7,
+                4,
+                "0x00000000000000000000000000000000000000bb",
+                false,
+                false,
+              ]);
+            case "getOperatorByIdSSV":
+              return viewsInterface.encodeFunctionResult("getOperatorByIdSSV", [
+                "0x00000000000000000000000000000000000000aa",
+                31n,
+                3,
                 "0x00000000000000000000000000000000000000bb",
                 false,
                 false,
@@ -214,15 +223,20 @@ describe("verifyOperatorState", () => {
 
         const result = (() => {
           switch (transaction.name) {
-            case "getOperatorFee":
-              return viewsInterface.encodeFunctionResult("getOperatorFee", [25n]);
-            case "getOperatorFeeSSV":
-              return viewsInterface.encodeFunctionResult("getOperatorFeeSSV", [30n]);
             case "getOperatorById":
               return viewsInterface.encodeFunctionResult("getOperatorById", [
                 "0x00000000000000000000000000000000000000aa",
                 25n,
-                8,
+                5,
+                "0x00000000000000000000000000000000000000bb",
+                false,
+                true,
+              ]);
+            case "getOperatorByIdSSV":
+              return viewsInterface.encodeFunctionResult("getOperatorByIdSSV", [
+                "0x00000000000000000000000000000000000000aa",
+                30n,
+                3,
                 "0x00000000000000000000000000000000000000bb",
                 false,
                 true,

@@ -11,6 +11,7 @@
   "function getOperatorFee(uint64 operatorId) view returns (uint256 fee)",
   "function getOperatorFeeSSV(uint64 operatorId) view returns (uint256 fee)",
   "function getOperatorById(uint64 operatorId) view returns (address owner, uint256 fee, uint32 validatorCount, address whitelistedAddress, bool isPrivate, bool active)",
+  "function getOperatorByIdSSV(uint64 operatorId) view returns (address owner, uint256 fee, uint32 validatorCount, address whitelistedAddress, bool isPrivate, bool active)",
   "function getNetworkFee() view returns (uint256 networkFee)",
   "function getNetworkFeeSSV() view returns (uint256 networkFee)",
   "function getLiquidationThresholdPeriod() view returns (uint64 blocks)",

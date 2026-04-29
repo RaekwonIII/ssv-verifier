@@ -27,7 +27,8 @@ function assetMethodName<T extends ClusterMethod | NullaryMethod | "getOperatorF
 }
 
 export interface ViewsOperatorDetails {
-  fee: bigint;
+  feeETH: bigint;
+  feeSSV: bigint;
   validatorCount: number;
   active: boolean;
 }
@@ -217,14 +218,20 @@ export function createViewsAdapter(
     },
 
     async getOperatorDetails(operatorId) {
-      const data = viewsInterface.encodeFunctionData("getOperatorById", [operatorId]);
-      const response = await ethCall(rpcUrl, viewsAddress, data, fetchFn);
-      const [, fee, validatorCount, , , active] = viewsInterface.decodeFunctionResult("getOperatorById", response);
+      const dataEth = viewsInterface.encodeFunctionData("getOperatorById", [operatorId]);
+      const dataSsv = viewsInterface.encodeFunctionData("getOperatorByIdSSV", [operatorId]);
+      const [responseEth, responseSsv] = await Promise.all([
+        ethCall(rpcUrl, viewsAddress, dataEth, fetchFn),
+        ethCall(rpcUrl, viewsAddress, dataSsv, fetchFn),
+      ]);
+      const [, feeETH, validatorCountEth, , , activeEth] = viewsInterface.decodeFunctionResult("getOperatorById", responseEth);
+      const [, feeSSV, validatorCountSsv, , , activeSsv] = viewsInterface.decodeFunctionResult("getOperatorByIdSSV", responseSsv);
 
       return {
-        fee,
-        validatorCount: Number(validatorCount),
-        active: Boolean(active),
+        feeETH,
+        feeSSV,
+        validatorCount: Number(validatorCountEth) + Number(validatorCountSsv),
+        active: Boolean(activeEth) || Boolean(activeSsv),
       };
     },
 
