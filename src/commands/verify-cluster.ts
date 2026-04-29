@@ -1420,7 +1420,7 @@ export function renderVerifyClusterSummary(result: VerifyClusterResult): string 
   return lines.join("\n");
 }
 
-function jsonScalar(value: unknown): unknown {
+export function jsonScalar(value: unknown): unknown {
   if (typeof value === "bigint") {
     return value.toString();
   }

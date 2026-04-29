@@ -165,34 +165,76 @@ describe("verifyAllClusters", () => {
     expect(renderVerifyClustersSummary(result)).toContain("- mainnet: 0 passed / 0 warned / 0 inconclusive / 1 failed / 1 total");
     expect(renderVerifyClustersSummary(result)).toContain(`hoodi/${makeClusterId(11)}: non-passing checks=owner:warn`);
     expect(renderVerifyClustersSummary(result)).toContain(`mainnet/${makeClusterId(12)}: non-passing checks=owner:fail`);
-    expect(JSON.parse(renderVerifyClustersJson(result))).toMatchObject({
+    const publicJson = JSON.parse(renderVerifyClustersJson(result));
+    expect(Object.keys(publicJson)).toEqual(["selectedNetwork", "status", "summary", "networkResults"]);
+    expect(publicJson).toMatchObject({
       selectedNetwork: "both",
       status: "fail",
-      totalClusters: 2,
       summary: expect.objectContaining({
         rootCauses: expect.objectContaining({ owner: 2 }),
       }),
       networkResults: [
         {
           network: "hoodi",
+          status: "warn",
+          summary: expect.any(Object),
+          clusterListingSource: "primary",
           clusterResults: [
             {
+              network: "hoodi",
               clusterId: makeClusterId(11),
               status: "warn",
+              checks: [
+                expect.objectContaining({
+                  name: "owner",
+                  kind: "input",
+                  status: "warn",
+                  reason: "lagging",
+                  localValue: "0x1",
+                  viewsValue: "0x1",
+                }),
+              ],
+              accountingDebug: {},
             },
           ],
         },
         {
           network: "mainnet",
+          status: "fail",
+          summary: expect.any(Object),
+          clusterListingSource: "primary",
           clusterResults: [
             {
+              network: "mainnet",
               clusterId: makeClusterId(12),
               status: "fail",
+              checks: [
+                expect.objectContaining({
+                  name: "owner",
+                  kind: "input",
+                  status: "fail",
+                  reason: "mismatch",
+                  localValue: "0x2",
+                  viewsValue: "0x3",
+                }),
+              ],
+              accountingDebug: {},
             },
           ],
         },
       ],
     });
+    expect(publicJson.totalClusters).toBeUndefined();
+    expect(Object.keys(publicJson.networkResults[0])).toEqual([
+      "network",
+      "status",
+      "summary",
+      "clusterListingSource",
+      "clusterResults",
+    ]);
+    expect(publicJson.networkResults[0].clusterResults[0].freshness).toBeUndefined();
+    expect(publicJson.networkResults[0].clusterResults[0].checks[0].classification).toBeUndefined();
+    expect(publicJson.networkResults[0].clusterResults[0].checks[0].subgraphValue).toBeUndefined();
   });
 
   it("continues through unverifiable clusters as inconclusive", async () => {
@@ -243,7 +285,12 @@ describe("verifyAllClusters", () => {
       failedChecks: 0,
     });
     expect(renderVerifyClustersSummary(result)).toContain(`mainnet/${makeClusterId(12)}: non-passing checks=clusterState:inconclusive`);
-    expect(renderVerifyClustersJson(result)).toContain('"inconclusiveChecks": 1');
+    expect(JSON.parse(renderVerifyClustersJson(result))).toMatchObject({
+      status: "inconclusive",
+      summary: expect.objectContaining({
+        rootCauses: expect.objectContaining({ clusterState: 1 }),
+      }),
+    });
   });
 
   it("treats inconclusive batch results as non-zero aggregate outcomes", async () => {
@@ -482,6 +529,28 @@ describe("verifyAllClusters", () => {
         operational: { subgraphLag: 0 },
         discovery: { clusterListing: 1 },
       },
+    });
+
+    const listingFailureJson = JSON.parse(renderVerifyClustersJson({
+      selectedNetwork: "hoodi",
+      status: result.status,
+      summary: result.summary,
+      totalClusters: result.totalClusters,
+      totalChecks: result.totalChecks,
+      passedChecks: result.passedChecks,
+      warnedChecks: result.warnedChecks,
+      inconclusiveChecks: result.inconclusiveChecks,
+      failedChecks: result.failedChecks,
+      networkResults: [result],
+    }));
+
+    expect(listingFailureJson.networkResults[0]).toMatchObject({
+      network: "hoodi",
+      status: "inconclusive",
+      summary: result.summary,
+      clusterListingSource: "primary",
+      errorDetail: "listing unavailable",
+      clusterResults: [],
     });
   });
 

@@ -15,7 +15,9 @@ import {
   type ClusterIdentityCheckResult,
   type VerifyClusterDependencies as SingleVerifyClusterDependencies,
   type VerifyClusterResult,
+  jsonScalar,
   renderVerifyClusterSummary,
+  toPublicVerifyClusterJson,
   verifyClusterIdentity,
 } from "./verify-cluster.js";
 
@@ -357,8 +359,24 @@ export function renderVerifyClustersSummary(result: VerifyClustersRunResult): st
   return lines.join("\n");
 }
 
+export function toPublicVerifyClustersJson(result: VerifyClustersRunResult): Record<string, unknown> {
+  return {
+    selectedNetwork: result.selectedNetwork,
+    status: result.status,
+    summary: jsonScalar(result.summary),
+    networkResults: result.networkResults.map((networkResult) => ({
+      network: networkResult.network,
+      status: networkResult.status,
+      summary: jsonScalar(networkResult.summary),
+      ...(networkResult.subgraphSource ? { clusterListingSource: networkResult.subgraphSource } : {}),
+      ...(networkResult.errorDetail ? { errorDetail: networkResult.errorDetail } : {}),
+      clusterResults: networkResult.clusterResults.map((clusterResult) => toPublicVerifyClusterJson(clusterResult)),
+    })),
+  };
+}
+
 export function renderVerifyClustersJson(result: VerifyClustersRunResult): string {
-  return JSON.stringify(result, null, 2);
+  return JSON.stringify(toPublicVerifyClustersJson(result), null, 2);
 }
 
 export { renderVerifyClusterSummary };
