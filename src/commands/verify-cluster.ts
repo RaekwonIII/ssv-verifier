@@ -1,6 +1,6 @@
 import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
-import { jsonRpcRequest } from "../clients/json-rpc.js";
+import { createNetworkRpcPool } from "../clients/rpc-pool.js";
 import { fetchPinnedSubgraphClusterSnapshot } from "../clients/subgraph.js";
 import { parseClusterId } from "../domain/cluster-id.js";
 import {
@@ -959,6 +959,7 @@ export async function verifyClusterIdentity(
   const fetchFn = dependencies.fetchFn ?? fetch;
   const network = config.activeNetworks[0]!;
   const networkConfig = config.networks[network];
+  const rpcClient = createNetworkRpcPool(config, networkConfig, fetchFn);
   const parsedClusterId = (() => {
     try {
       return parseClusterId(clusterId);
@@ -966,12 +967,7 @@ export async function verifyClusterIdentity(
       return error instanceof Error ? error : new Error(String(error));
     }
   })();
-  const chainHeadBlockPromise = jsonRpcRequest<string>(
-    networkConfig.rpcUrl,
-    "eth_blockNumber",
-    [],
-    fetchFn,
-  ).then(hexToBigInt);
+  const chainHeadBlockPromise = rpcClient.call<string>("eth_blockNumber", []).then(hexToBigInt);
   if (parsedClusterId instanceof Error) {
     const chainHeadBlock = await chainHeadBlockPromise;
     const freshness = createFreshness(0n, chainHeadBlock);
@@ -1106,7 +1102,7 @@ export async function verifyClusterIdentity(
     );
   }
 
-  const views = createViewsAdapter(networkConfig.rpcUrl, networkConfig.viewsAddress, fetchFn);
+  const views = createViewsAdapter(rpcClient, networkConfig.viewsAddress);
   const verificationBlockNumber = BigInt(subgraphAccounting.indexedBlockNumber);
   const verificationBlockTag = `0x${verificationBlockNumber.toString(16)}`;
   const onChainAsset = await views.getClusterAssetType(cluster.owner, cluster.operatorIds, verificationBlockTag);

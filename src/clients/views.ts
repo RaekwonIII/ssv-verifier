@@ -1,6 +1,6 @@
 import { Interface } from "ethers";
 
-import { jsonRpcRequest } from "./json-rpc.js";
+import type { RpcClient } from "./rpc-pool.js";
 import viewsAbi from "../abi/ssv-network-views.json" with { type: "json" };
 
 const viewsInterface = new Interface(viewsAbi);
@@ -34,24 +34,18 @@ export interface ViewsOperatorDetails {
 }
 
 async function ethCall(
-  rpcUrl: string,
+  rpcClient: RpcClient,
   viewsAddress: string,
   data: string,
-  fetchFn: typeof fetch,
   blockTag = "latest",
 ): Promise<string> {
-  return jsonRpcRequest<string>(
-    rpcUrl,
-    "eth_call",
-    [
-      {
-        to: viewsAddress,
-        data,
-      },
-      blockTag,
-    ],
-    fetchFn,
-  );
+  return rpcClient.call<string>("eth_call", [
+    {
+      to: viewsAddress,
+      data,
+    },
+    blockTag,
+  ]);
 }
 
 export interface ViewsClusterState {
@@ -89,40 +83,37 @@ export interface ViewsAdapter {
 }
 
 async function callClusterMethod(
-  rpcUrl: string,
+  rpcClient: RpcClient,
   viewsAddress: string,
   asset: FeeAsset,
   methodName: ClusterMethod,
   owner: string,
   operatorIds: bigint[],
   cluster: ViewsClusterState,
-  fetchFn: typeof fetch,
   blockTag = "latest",
 ): Promise<string> {
   const assetAwareMethodName = assetMethodName(asset, methodName) as ClusterMethodName;
   const data = viewsInterface.encodeFunctionData(assetAwareMethodName, [owner, operatorIds, cluster]);
 
-  return ethCall(rpcUrl, viewsAddress, data, fetchFn, blockTag);
+  return ethCall(rpcClient, viewsAddress, data, blockTag);
 }
 
 async function callNullaryMethod(
-  rpcUrl: string,
+  rpcClient: RpcClient,
   viewsAddress: string,
   asset: FeeAsset,
   methodName: NullaryMethod,
-  fetchFn: typeof fetch,
   blockTag = "latest",
 ): Promise<string> {
   const assetAwareMethodName = assetMethodName(asset, methodName) as NullaryMethodName;
   const data = viewsInterface.encodeFunctionData(assetAwareMethodName, []);
 
-  return ethCall(rpcUrl, viewsAddress, data, fetchFn, blockTag);
+  return ethCall(rpcClient, viewsAddress, data, blockTag);
 }
 
 export function createViewsAdapter(
-  rpcUrl: string,
+  rpcClient: RpcClient,
   viewsAddress: string,
-  fetchFn: typeof fetch = fetch,
 ): ViewsAdapter {
   return {
     async validateClusterState(asset, owner, operatorIds, cluster) {
@@ -130,7 +121,7 @@ export function createViewsAdapter(
       const data = viewsInterface.encodeFunctionData(methodName, [owner, operatorIds, cluster]);
 
       try {
-        const response = await ethCall(rpcUrl, viewsAddress, data, fetchFn);
+        const response = await ethCall(rpcClient, viewsAddress, data);
         const [isLiquidated] = viewsInterface.decodeFunctionResult(methodName, response);
 
         return {
@@ -150,7 +141,7 @@ export function createViewsAdapter(
       const data = viewsInterface.encodeFunctionData("getClusterAssetType", [owner, operatorIds]);
 
       try {
-        const response = await ethCall(rpcUrl, viewsAddress, data, fetchFn, blockTag);
+        const response = await ethCall(rpcClient, viewsAddress, data, blockTag);
         const [rawVersion] = viewsInterface.decodeFunctionResult("getClusterAssetType", response);
 
         if (rawVersion === ETH_ASSET_VERSION) {
@@ -186,7 +177,7 @@ export function createViewsAdapter(
 
     async getClusterBalance(asset, owner, operatorIds, cluster, blockTag = "latest") {
       const methodName = assetMethodName(asset, "getBalance") as ClusterMethodName;
-      const response = await callClusterMethod(rpcUrl, viewsAddress, asset, "getBalance", owner, operatorIds, cluster, fetchFn, blockTag);
+      const response = await callClusterMethod(rpcClient, viewsAddress, asset, "getBalance", owner, operatorIds, cluster, blockTag);
       const [balance] = viewsInterface.decodeFunctionResult(methodName, response);
 
       return balance;
@@ -194,7 +185,7 @@ export function createViewsAdapter(
 
     async getClusterBurnRate(asset, owner, operatorIds, cluster, blockTag = "latest") {
       const methodName = assetMethodName(asset, "getBurnRate") as ClusterMethodName;
-      const response = await callClusterMethod(rpcUrl, viewsAddress, asset, "getBurnRate", owner, operatorIds, cluster, fetchFn, blockTag);
+      const response = await callClusterMethod(rpcClient, viewsAddress, asset, "getBurnRate", owner, operatorIds, cluster, blockTag);
       const [burnRate] = viewsInterface.decodeFunctionResult(methodName, response);
 
       return burnRate;
@@ -202,7 +193,7 @@ export function createViewsAdapter(
 
     async getClusterLiquidatable(asset, owner, operatorIds, cluster, blockTag = "latest") {
       const methodName = assetMethodName(asset, "isLiquidatable") as ClusterMethodName;
-      const response = await callClusterMethod(rpcUrl, viewsAddress, asset, "isLiquidatable", owner, operatorIds, cluster, fetchFn, blockTag);
+      const response = await callClusterMethod(rpcClient, viewsAddress, asset, "isLiquidatable", owner, operatorIds, cluster, blockTag);
       const [isLiquidatable] = viewsInterface.decodeFunctionResult(methodName, response);
 
       return isLiquidatable;
@@ -211,7 +202,7 @@ export function createViewsAdapter(
     async getOperatorFee(asset, operatorId) {
       const methodName = assetMethodName(asset, "getOperatorFee") as OperatorFeeMethodName;
       const data = viewsInterface.encodeFunctionData(methodName, [operatorId]);
-      const response = await ethCall(rpcUrl, viewsAddress, data, fetchFn);
+      const response = await ethCall(rpcClient, viewsAddress, data);
       const [fee] = viewsInterface.decodeFunctionResult(methodName, response);
 
       return fee;
@@ -221,8 +212,8 @@ export function createViewsAdapter(
       const dataEth = viewsInterface.encodeFunctionData("getOperatorById", [operatorId]);
       const dataSsv = viewsInterface.encodeFunctionData("getOperatorByIdSSV", [operatorId]);
       const [responseEth, responseSsv] = await Promise.all([
-        ethCall(rpcUrl, viewsAddress, dataEth, fetchFn),
-        ethCall(rpcUrl, viewsAddress, dataSsv, fetchFn),
+        ethCall(rpcClient, viewsAddress, dataEth),
+        ethCall(rpcClient, viewsAddress, dataSsv),
       ]);
       const [, feeETH, validatorCountEth, , , activeEth] = viewsInterface.decodeFunctionResult("getOperatorById", responseEth);
       const [, feeSSV, validatorCountSsv, , , activeSsv] = viewsInterface.decodeFunctionResult("getOperatorByIdSSV", responseSsv);
@@ -237,7 +228,7 @@ export function createViewsAdapter(
 
     async getNetworkFee(asset, blockTag = "latest") {
       const methodName = assetMethodName(asset, "getNetworkFee") as NullaryMethodName;
-      const response = await callNullaryMethod(rpcUrl, viewsAddress, asset, "getNetworkFee", fetchFn, blockTag);
+      const response = await callNullaryMethod(rpcClient, viewsAddress, asset, "getNetworkFee", blockTag);
       const [networkFee] = viewsInterface.decodeFunctionResult(methodName, response);
 
       return networkFee;
@@ -245,7 +236,7 @@ export function createViewsAdapter(
 
     async getLiquidationThreshold(asset, blockTag = "latest") {
       const methodName = assetMethodName(asset, "getLiquidationThresholdPeriod") as NullaryMethodName;
-      const response = await callNullaryMethod(rpcUrl, viewsAddress, asset, "getLiquidationThresholdPeriod", fetchFn, blockTag);
+      const response = await callNullaryMethod(rpcClient, viewsAddress, asset, "getLiquidationThresholdPeriod", blockTag);
       const [threshold] = viewsInterface.decodeFunctionResult(methodName, response);
 
       return threshold;
@@ -253,96 +244,10 @@ export function createViewsAdapter(
 
     async getMinimumLiquidationCollateral(asset, blockTag = "latest") {
       const methodName = assetMethodName(asset, "getMinimumLiquidationCollateral") as NullaryMethodName;
-      const response = await callNullaryMethod(rpcUrl, viewsAddress, asset, "getMinimumLiquidationCollateral", fetchFn, blockTag);
+      const response = await callNullaryMethod(rpcClient, viewsAddress, asset, "getMinimumLiquidationCollateral", blockTag);
       const [minimumCollateral] = viewsInterface.decodeFunctionResult(methodName, response);
 
       return minimumCollateral;
     },
   };
-}
-
-export async function validateClusterStateWithViews(
-  rpcUrl: string,
-  viewsAddress: string,
-  owner: string,
-  operatorIds: bigint[],
-  cluster: ViewsClusterState,
-  fetchFn: typeof fetch = fetch,
-): Promise<ViewsValidationResult> {
-  return createViewsAdapter(rpcUrl, viewsAddress, fetchFn).validateClusterState("SSV", owner, operatorIds, cluster);
-}
-
-export async function getClusterBalanceFromViews(
-  rpcUrl: string,
-  viewsAddress: string,
-  owner: string,
-  operatorIds: bigint[],
-  cluster: ViewsClusterState,
-  fetchFn: typeof fetch = fetch,
-): Promise<bigint> {
-  return createViewsAdapter(rpcUrl, viewsAddress, fetchFn).getClusterBalance("SSV", owner, operatorIds, cluster);
-}
-
-export async function getClusterBurnRateFromViews(
-  rpcUrl: string,
-  viewsAddress: string,
-  owner: string,
-  operatorIds: bigint[],
-  cluster: ViewsClusterState,
-  fetchFn: typeof fetch = fetch,
-): Promise<bigint> {
-  return createViewsAdapter(rpcUrl, viewsAddress, fetchFn).getClusterBurnRate("SSV", owner, operatorIds, cluster);
-}
-
-export async function getClusterLiquidatableFromViews(
-  rpcUrl: string,
-  viewsAddress: string,
-  owner: string,
-  operatorIds: bigint[],
-  cluster: ViewsClusterState,
-  fetchFn: typeof fetch = fetch,
-): Promise<boolean> {
-  return createViewsAdapter(rpcUrl, viewsAddress, fetchFn).getClusterLiquidatable("SSV", owner, operatorIds, cluster);
-}
-
-export async function getOperatorFeeFromViews(
-  rpcUrl: string,
-  viewsAddress: string,
-  operatorId: bigint,
-  fetchFn: typeof fetch = fetch,
-): Promise<bigint> {
-  return createViewsAdapter(rpcUrl, viewsAddress, fetchFn).getOperatorFee("SSV", operatorId);
-}
-
-export async function getOperatorDetailsFromViews(
-  rpcUrl: string,
-  viewsAddress: string,
-  operatorId: bigint,
-  fetchFn: typeof fetch = fetch,
-): Promise<ViewsOperatorDetails> {
-  return createViewsAdapter(rpcUrl, viewsAddress, fetchFn).getOperatorDetails(operatorId);
-}
-
-export async function getNetworkFeeFromViews(
-  rpcUrl: string,
-  viewsAddress: string,
-  fetchFn: typeof fetch = fetch,
-): Promise<bigint> {
-  return createViewsAdapter(rpcUrl, viewsAddress, fetchFn).getNetworkFee("SSV");
-}
-
-export async function getLiquidationThresholdFromViews(
-  rpcUrl: string,
-  viewsAddress: string,
-  fetchFn: typeof fetch = fetch,
-): Promise<bigint> {
-  return createViewsAdapter(rpcUrl, viewsAddress, fetchFn).getLiquidationThreshold("SSV");
-}
-
-export async function getMinimumLiquidationCollateralFromViews(
-  rpcUrl: string,
-  viewsAddress: string,
-  fetchFn: typeof fetch = fetch,
-): Promise<bigint> {
-  return createViewsAdapter(rpcUrl, viewsAddress, fetchFn).getMinimumLiquidationCollateral("SSV");
 }

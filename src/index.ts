@@ -155,7 +155,7 @@ export function renderBootstrapSummary(args: CliArgs): string {
 
   for (const network of config.activeNetworks) {
     const entry = config.networks[network];
-    lines.push(`- ${network}: rpc=${entry.rpcUrl} views=${entry.viewsAddress}`);
+    lines.push(`- ${network}: rpc=${entry.rpcUrls.join(",")} views=${entry.viewsAddress}`);
   }
 
   return lines.join("\n");

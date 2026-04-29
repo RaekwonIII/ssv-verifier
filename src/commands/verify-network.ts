@@ -1,5 +1,6 @@
 import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
+import { createNetworkRpcPool, type RpcClient } from "../clients/rpc-pool.js";
 import { fetchSubgraphDaoValues } from "../clients/subgraph.js";
 import { createViewsAdapter, type FeeAsset } from "../clients/views.js";
 import { summarizeStatuses, type CheckStatus } from "../status.js";
@@ -83,12 +84,11 @@ function createCheck(
 
 async function verifyNetworkForAsset(
   asset: FeeAsset,
-  rpcUrl: string,
+  rpcClient: RpcClient,
   viewsAddress: string,
   daoValues: Awaited<ReturnType<typeof fetchSubgraphDaoValues>>["daoValues"],
-  fetchFn: typeof fetch,
 ): Promise<VerifyNetworkAssetResult> {
-  const views = createViewsAdapter(rpcUrl, viewsAddress, fetchFn);
+  const views = createViewsAdapter(rpcClient, viewsAddress);
   const [networkFee, liquidationThreshold, minimumLiquidationCollateral] = await Promise.all([
     views.getNetworkFee(asset),
     views.getLiquidationThreshold(asset),
@@ -149,6 +149,7 @@ async function verifySingleNetwork(
   const fetchFn = dependencies.fetchFn ?? fetch;
   const fetchDaoValues = dependencies.fetchDaoValues ?? fetchSubgraphDaoValues;
   const networkConfig = config.networks[network];
+  const rpcClient = createNetworkRpcPool(config, networkConfig, fetchFn);
   const subgraphDaoValues = await fetchDaoValues(
     networkConfig.subgraphPrimaryUrl,
     networkConfig.subgraphFallbackUrl,
@@ -156,8 +157,8 @@ async function verifySingleNetwork(
     fetchFn,
   );
   const assetResults = await Promise.all([
-    verifyNetworkForAsset("ETH", networkConfig.rpcUrl, networkConfig.viewsAddress, subgraphDaoValues.daoValues, fetchFn),
-    verifyNetworkForAsset("SSV", networkConfig.rpcUrl, networkConfig.viewsAddress, subgraphDaoValues.daoValues, fetchFn),
+    verifyNetworkForAsset("ETH", rpcClient, networkConfig.viewsAddress, subgraphDaoValues.daoValues),
+    verifyNetworkForAsset("SSV", rpcClient, networkConfig.viewsAddress, subgraphDaoValues.daoValues),
   ]);
 
   return {

@@ -86,9 +86,13 @@ const clusterIdsQuery = `query ($first: Int!, $skip: Int!) {
   }
 }`;
 
-const operatorIdsQuery = `query ($first: Int!, $skip: Int!) {
+const operatorDetailsPageQuery = `query ($first: Int!, $skip: Int!) {
   operators(first: $first, skip: $skip, orderBy: id, orderDirection: asc) {
     id
+    fee
+    feeSSV
+    validatorCount
+    removed
   }
 }`;
 
@@ -213,8 +217,8 @@ export interface SubgraphClusterIdsResult {
   source: "primary" | "fallback";
 }
 
-export interface SubgraphOperatorIdsResult {
-  operatorIds: string[];
+export interface SubgraphOperatorDetailsListResult {
+  operators: SubgraphOperatorDetailsRecord[];
   source: "primary" | "fallback";
 }
 
@@ -628,29 +632,29 @@ export async function fetchAllSubgraphClusterIds(
   }
 }
 
-async function fetchAllSubgraphOperatorIdsOnce(
+async function fetchAllSubgraphOperatorDetailsOnce(
   url: string,
   source: "primary" | "fallback",
   fetchFn: typeof fetch,
-): Promise<SubgraphOperatorIdsResult> {
-  const operatorIds: string[] = [];
+): Promise<SubgraphOperatorDetailsListResult> {
+  const operators: SubgraphOperatorDetailsRecord[] = [];
   let skip = 0;
   const first = 1000;
 
   while (true) {
-    const payload = await postGraphql<{ operators?: Array<{ id: string }> }>(
+    const payload = await postGraphql<{ operators?: SubgraphOperatorDetailsRecord[] }>(
       url,
-      operatorIdsQuery,
+      operatorDetailsPageQuery,
       { first, skip },
       fetchFn,
     );
     const page = payload.operators ?? [];
 
-    operatorIds.push(...page.map((operator) => operator.id));
+    operators.push(...page);
 
     if (page.length < first) {
       return {
-        operatorIds,
+        operators,
         source,
       };
     }
@@ -659,18 +663,18 @@ async function fetchAllSubgraphOperatorIdsOnce(
   }
 }
 
-export async function fetchAllSubgraphOperatorIds(
+export async function fetchAllSubgraphOperatorDetails(
   primaryUrl: string,
   fallbackUrl: string | undefined,
   fetchFn: typeof fetch = fetch,
-): Promise<SubgraphOperatorIdsResult> {
+): Promise<SubgraphOperatorDetailsListResult> {
   try {
-    return await fetchAllSubgraphOperatorIdsOnce(primaryUrl, "primary", fetchFn);
+    return await fetchAllSubgraphOperatorDetailsOnce(primaryUrl, "primary", fetchFn);
   } catch (primaryError) {
     if (!fallbackUrl) {
       throw primaryError;
     }
 
-    return fetchAllSubgraphOperatorIdsOnce(fallbackUrl, "fallback", fetchFn);
+    return fetchAllSubgraphOperatorDetailsOnce(fallbackUrl, "fallback", fetchFn);
   }
 }

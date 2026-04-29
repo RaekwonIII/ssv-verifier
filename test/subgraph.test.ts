@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { fetchPinnedSubgraphClusterSnapshot } from "../src/clients/subgraph.js";
+import {
+  fetchAllSubgraphOperatorDetails,
+  fetchPinnedSubgraphClusterSnapshot,
+} from "../src/clients/subgraph.js";
 
 const clusterId = "0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-7-523";
 const daoAddress = "0x58410bef803ecd7e63b23664c586a6db72daf59c";
@@ -186,5 +189,69 @@ describe("fetchPinnedSubgraphClusterSnapshot", () => {
       detail: "Subgraph query failed: subgraph timeout",
       source: "fallback",
     });
+  });
+});
+
+describe("fetchAllSubgraphOperatorDetails", () => {
+  it("paginates and returns full operator details", async () => {
+    const pageSize = 1000;
+    const firstPage = Array.from({ length: pageSize }, (_, index) => ({
+      id: String(index + 1),
+      fee: String((index + 1) * 10),
+      feeSSV: String((index + 1) * 11),
+      validatorCount: String((index + 1) * 2),
+      removed: false,
+    }));
+    const secondPage = [
+      { id: "1001", fee: "10010", feeSSV: "10011", validatorCount: "42", removed: true },
+    ];
+    const seenSkips: number[] = [];
+    const fetchFn: typeof fetch = async (input, init) => {
+      expect(String(input)).toBe("https://primary.example");
+      const body = JSON.parse(String(init?.body)) as { query: string; variables: { first: number; skip: number } };
+      expect(body.query).toContain("operators(first: $first, skip: $skip");
+      expect(body.query).toContain("removed");
+      expect(body.query).not.toContain("operator(id:");
+      seenSkips.push(body.variables.skip);
+      const operators = body.variables.skip === 0 ? firstPage : body.variables.skip === pageSize ? secondPage : [];
+      return new Response(JSON.stringify({ data: { operators } }), { status: 200 });
+    };
+
+    const result = await fetchAllSubgraphOperatorDetails("https://primary.example", undefined, fetchFn);
+
+    expect(seenSkips).toEqual([0, pageSize]);
+    expect(result.source).toBe("primary");
+    expect(result.operators).toHaveLength(pageSize + 1);
+    expect(result.operators[0]).toEqual({ id: "1", fee: "10", feeSSV: "11", validatorCount: "2", removed: false });
+    expect(result.operators.at(-1)).toEqual({ id: "1001", fee: "10010", feeSSV: "10011", validatorCount: "42", removed: true });
+  });
+
+  it("falls back when the primary subgraph fails", async () => {
+    const fetchFn: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url === "https://primary.example") {
+        return new Response(JSON.stringify({ errors: [{ message: "primary down" }] }), { status: 200 });
+      }
+      if (url === "https://fallback.example") {
+        return new Response(
+          JSON.stringify({
+            data: {
+              operators: [
+                { id: "7", fee: "70", feeSSV: "77", validatorCount: "3", removed: false },
+              ],
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`Unexpected url: ${url}`);
+    };
+
+    const result = await fetchAllSubgraphOperatorDetails("https://primary.example", "https://fallback.example", fetchFn);
+
+    expect(result.source).toBe("fallback");
+    expect(result.operators).toEqual([
+      { id: "7", fee: "70", feeSSV: "77", validatorCount: "3", removed: false },
+    ]);
   });
 });
