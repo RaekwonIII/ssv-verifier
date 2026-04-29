@@ -4,6 +4,11 @@ import { fetchAllSubgraphClusterIds } from "../clients/subgraph.js";
 import { summarizeStatuses, type CheckStatus } from "../status.js";
 import { parseClusterId } from "../domain/cluster-id.js";
 import {
+  combineClusterBatchSummaries,
+  summarizeClusterBatch,
+  type ClusterBatchSummary,
+} from "../domain/cluster-summary.js";
+import {
   type ClusterAccountingDebug,
   type ClusterCheckKind,
   type ClusterCheckReason,
@@ -26,7 +31,9 @@ export interface VerifyClusterBatchResult extends VerifyClusterResult {
 export interface VerifyClustersResult {
   network: VerifyClusterResult["network"];
   status: CheckStatus;
+  summary: ClusterBatchSummary;
   subgraphSource: "primary" | "fallback";
+  errorDetail?: string;
   totalClusters: number;
   totalChecks: number;
   passedChecks: number;
@@ -51,6 +58,7 @@ const CLUSTER_VERIFICATION_CONCURRENCY_LIMIT = 10;
 export interface VerifyClustersRunResult {
   selectedNetwork: RuntimeConfig["selectedNetwork"];
   status: CheckStatus;
+  summary: ClusterBatchSummary;
   totalClusters: number;
   totalChecks: number;
   passedChecks: number;
@@ -182,7 +190,25 @@ async function verifyAllClustersForNetwork(
     networkConfig.subgraphPrimaryUrl,
     networkConfig.subgraphFallbackUrl,
     fetchFn,
-  );
+  ).catch((error: unknown) => error instanceof Error ? error : new Error(String(error)));
+
+  if (clusterListing instanceof Error) {
+    return {
+      network,
+      status: "inconclusive",
+      summary: summarizeClusterBatch({ clusterResults: [], discoveryFailureCount: 1 }),
+      subgraphSource: "primary",
+      errorDetail: clusterListing.message,
+      totalClusters: 0,
+      totalChecks: 0,
+      passedChecks: 0,
+      warnedChecks: 0,
+      inconclusiveChecks: 0,
+      failedChecks: 0,
+      clusterResults: [],
+    };
+  }
+
   const singleNetworkConfig = {
     ...config,
     selectedNetwork: network,
@@ -255,6 +281,7 @@ async function verifyAllClustersForNetwork(
   return {
     network,
     status: summarizeStatus(clusterResults.map((result) => result.status)),
+    summary: summarizeClusterBatch({ clusterResults }),
     subgraphSource: clusterListing.source,
     totalClusters: clusterResults.length,
     totalChecks,
@@ -295,6 +322,7 @@ export async function verifyClusters(
   return {
     selectedNetwork: config.selectedNetwork,
     status: summarizeStatus(networkResults.map((result) => result.status)),
+    summary: combineClusterBatchSummaries(networkResults.map((result) => result.summary)),
     totalClusters,
     totalChecks,
     passedChecks,
