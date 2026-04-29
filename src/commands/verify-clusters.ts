@@ -2,7 +2,21 @@ import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
 import { fetchAllSubgraphClusterIds } from "../clients/subgraph.js";
 import { summarizeStatuses, type CheckStatus } from "../status.js";
-import { type VerifyClusterResult, renderVerifyClusterSummary, verifyClusterIdentity } from "./verify-cluster.js";
+import {
+  type ClusterAccountingDebug,
+  type ClusterCheckKind,
+  type ClusterCheckReason,
+  type ClusterIdentityCheckResult,
+  type VerifyClusterDependencies as SingleVerifyClusterDependencies,
+  type VerifyClusterResult,
+  renderVerifyClusterSummary,
+  verifyClusterIdentity,
+} from "./verify-cluster.js";
+
+type VerifyClusterFunctionResult = Omit<VerifyClusterResult, "checks" | "accountingDebug"> & {
+  checks: Array<Partial<ClusterIdentityCheckResult> & Pick<ClusterIdentityCheckResult, "name" | "status" | "detail" | "subgraphValue">>;
+  accountingDebug?: ClusterAccountingDebug;
+};
 
 export interface VerifyClusterBatchResult extends VerifyClusterResult {
   errorDetail?: string;
@@ -24,7 +38,11 @@ export interface VerifyClustersResult {
 export interface VerifyClustersDependencies {
   fetchFn?: typeof fetch;
   fetchClusterIds?: typeof fetchAllSubgraphClusterIds;
-  verifyCluster?: typeof verifyClusterIdentity;
+  verifyCluster?: (
+    config: RuntimeConfig,
+    clusterId: string,
+    dependencies?: SingleVerifyClusterDependencies,
+  ) => Promise<VerifyClusterFunctionResult>;
 }
 
 export interface VerifyClustersRunResult {
@@ -41,6 +59,57 @@ export interface VerifyClustersRunResult {
 
 function summarizeStatus(statuses: CheckStatus[]): CheckStatus {
   return summarizeStatuses(statuses);
+}
+
+function kindForCheck(name: ClusterIdentityCheckResult["name"]): ClusterCheckKind {
+  if (name === "currentBalance" || name === "burnRate" || name === "liquidationCollateral" || name === "liquidatable") {
+    return "derived";
+  }
+
+  if (name === "subgraphLag") {
+    return "operational";
+  }
+
+  return "input";
+}
+
+function reasonForCheck(check: Partial<ClusterIdentityCheckResult> & Pick<ClusterIdentityCheckResult, "status">): ClusterCheckReason {
+  if (check.reason) {
+    return check.reason;
+  }
+
+  if (check.blockedBy?.length) {
+    return "blocked";
+  }
+
+  if (check.status === "pass") {
+    return "matched";
+  }
+
+  if (check.classification === "mismatch" || check.status === "fail") {
+    return "mismatch";
+  }
+
+  if (check.classification === "lag-affected" || check.status === "warn") {
+    return "lagging";
+  }
+
+  return "unavailable";
+}
+
+function normalizeClusterResult(result: VerifyClusterFunctionResult): VerifyClusterResult {
+  const checks = result.checks.map((check) => ({
+    kind: check.kind ?? kindForCheck(check.name),
+    reason: reasonForCheck(check),
+    classification: check.classification ?? (check.status === "pass" ? "verified" : check.status === "warn" ? "lag-affected" : check.status === "fail" ? "mismatch" : "inconclusive"),
+    ...check,
+  })) satisfies ClusterIdentityCheckResult[];
+
+  return {
+    ...result,
+    checks,
+    accountingDebug: result.accountingDebug ?? {},
+  };
 }
 
 async function verifyAllClustersForNetwork(
@@ -65,7 +134,7 @@ async function verifyAllClustersForNetwork(
   const clusterResults = await Promise.all(
     clusterListing.clusterIds.map(async (clusterId) => {
       try {
-        return await verifyCluster(singleNetworkConfig, clusterId, { fetchFn });
+        return normalizeClusterResult(await verifyCluster(singleNetworkConfig, clusterId, { fetchFn }));
       } catch (error) {
         return {
           network,
@@ -78,15 +147,18 @@ async function verifyAllClustersForNetwork(
             status: "fresh",
           },
           status: "inconclusive",
-            checks: [
-              {
-                name: "clusterState",
-                status: "inconclusive",
-                classification: "inconclusive",
-                detail: error instanceof Error ? error.message : String(error),
-                subgraphValue: clusterId,
-              },
-            ],
+          checks: [
+            {
+              name: "clusterState",
+              kind: "input",
+              status: "inconclusive",
+              reason: "unavailable",
+              classification: "inconclusive",
+              detail: error instanceof Error ? error.message : String(error),
+              subgraphValue: clusterId,
+            },
+          ],
+          accountingDebug: { failureStage: "clusterState" },
           errorDetail: error instanceof Error ? error.message : String(error),
         } satisfies VerifyClusterBatchResult;
       }
