@@ -16,7 +16,7 @@
     "networkFeeIndex": "0",
     "index": "0",
     "active": true,
-    "balance": "0",
+    "balance": "64",
     "feeAsset": "ETH",
     "effectiveBalance": "32"
   },
