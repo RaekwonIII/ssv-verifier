@@ -25,6 +25,15 @@ export interface SubgraphFreshness {
 }
 
 export type CheckClassification = "verified" | "mismatch" | "lag-affected" | "inconclusive";
+export type ClusterCheckKind = "input" | "derived" | "operational";
+export type ClusterCheckReason =
+  | "matched"
+  | "mismatch"
+  | "invalid"
+  | "missing"
+  | "unavailable"
+  | "blocked"
+  | "lagging";
 
 export interface ClusterIdentityCheckResult {
   name:
@@ -42,7 +51,9 @@ export interface ClusterIdentityCheckResult {
     | "burnRate"
     | "liquidationCollateral"
     | "liquidatable";
+  kind: ClusterCheckKind;
   status: CheckStatus;
+  reason: ClusterCheckReason;
   classification: CheckClassification;
   detail: string;
   subgraphValue: string;
@@ -58,6 +69,7 @@ export interface VerifyClusterResult {
   freshness: SubgraphFreshness;
   status: CheckStatus;
   checks: ClusterIdentityCheckResult[];
+  accountingDebug: ClusterAccountingDebug;
 }
 
 export interface VerifyClusterDependencies {
@@ -69,6 +81,14 @@ export interface ViewsReadFailureDiagnostic {
   read: "getBalance" | "getBurnRate" | "isLiquidatable" | "getLiquidationThresholdPeriod" | "getMinimumLiquidationCollateral";
   blockTag: string;
   message: string;
+}
+
+export interface ClusterAccountingDebug {
+  failureStage?: ClusterIdentityCheckResult["name"] | "derived";
+  selectedAsset?: FeeAsset;
+  localInputs?: Record<string, unknown>;
+  viewsInputs?: Record<string, unknown>;
+  intermediates?: Record<string, unknown>;
 }
 
 interface NormalizedCluster {
@@ -214,20 +234,80 @@ function formatOperatorIds(operatorIds: bigint[]): string {
   return operatorIds.map((operatorId) => operatorId.toString()).join(", ");
 }
 
+function kindForCheckName(name: ClusterIdentityCheckResult["name"]): ClusterCheckKind {
+  if (name === "currentBalance" || name === "burnRate" || name === "liquidationCollateral" || name === "liquidatable") {
+    return "derived";
+  }
+
+  if (name === "subgraphLag") {
+    return "operational";
+  }
+
+  return "input";
+}
+
+function reasonFromClassification(classification: CheckClassification, status: CheckStatus): ClusterCheckReason {
+  if (status === "pass") {
+    return "matched";
+  }
+
+  if (classification === "mismatch") {
+    return "mismatch";
+  }
+
+  if (classification === "lag-affected") {
+    return "lagging";
+  }
+
+  return "unavailable";
+}
+
+function withCheckContract(
+  check: Omit<ClusterIdentityCheckResult, "kind" | "reason"> & Partial<Pick<ClusterIdentityCheckResult, "kind" | "reason">>,
+): ClusterIdentityCheckResult {
+  return {
+    kind: check.kind ?? kindForCheckName(check.name),
+    reason: check.reason ?? reasonFromClassification(check.classification, check.status),
+    ...check,
+  };
+}
+
+function emptyAccountingDebug(failureStage?: ClusterAccountingDebug["failureStage"]): ClusterAccountingDebug {
+  return failureStage ? { failureStage } : {};
+}
+
+function summarizeAccountingDebug(checks: ReadonlyArray<ClusterIdentityCheckResult>, debug: ClusterAccountingDebug): ClusterAccountingDebug {
+  if (debug.failureStage) {
+    return debug;
+  }
+
+  const firstNonPassing = checks.find((check) => check.status !== "pass");
+
+  if (!firstNonPassing) {
+    return debug;
+  }
+
+  return {
+    ...debug,
+    failureStage: firstNonPassing.name,
+  };
+}
+
 function createFailureCheck(
   name: ClusterIdentityCheckResult["name"],
   subgraphValue: string,
   detail: string,
   viewsValue?: string,
 ): ClusterIdentityCheckResult {
-  return {
+  return withCheckContract({
     name,
     status: "fail",
+    reason: "mismatch",
     classification: "mismatch",
     subgraphValue,
     detail,
     ...(viewsValue ? { viewsValue } : {}),
-  };
+  });
 }
 
 function createInconclusiveCheck(
@@ -237,15 +317,16 @@ function createInconclusiveCheck(
   blockedBy?: string[],
   diagnostics?: ViewsReadFailureDiagnostic[],
 ): ClusterIdentityCheckResult {
-  return {
+  return withCheckContract({
     name,
     status: "inconclusive",
+    reason: blockedBy?.length ? "blocked" : "unavailable",
     classification: "inconclusive",
     subgraphValue,
     detail,
     ...(blockedBy ? { blockedBy } : {}),
     ...(diagnostics ? { diagnostics } : {}),
-  };
+  });
 }
 
 function createBlockedCheck(
@@ -277,16 +358,18 @@ function applyFreshnessClassification(
 function createSubgraphLagCheck(freshness: SubgraphFreshness): ClusterIdentityCheckResult {
   const withinBuffer = freshness.lagBlocks <= 3;
 
-  return {
+  return withCheckContract({
     name: "subgraphLag",
+    kind: "operational",
     status: withinBuffer ? "pass" : "warn",
+    reason: withinBuffer ? "matched" : "lagging",
     classification: withinBuffer ? "verified" : "lag-affected",
     subgraphValue: freshness.indexedBlockNumber.toString(),
     viewsValue: freshness.chainHeadBlockNumber.toString(),
     detail: withinBuffer
       ? `Subgraph verification block stayed within the 3-block operational buffer (lag=${freshness.lagBlocks})`
       : `Subgraph verification block lagged chain head by ${freshness.lagBlocks} block(s), exceeding the 3-block operational buffer`,
-  };
+  });
 }
 
 function summarizeStatus(checks: ClusterIdentityCheckResult[]): CheckStatus {
@@ -352,7 +435,7 @@ async function buildPinnedDerivedChecks(args: {
   verificationBlockNumber: bigint;
   verificationBlockTag: string;
   freshness: SubgraphFreshness;
-}): Promise<ClusterIdentityCheckResult[]> {
+}): Promise<{ checks: ClusterIdentityCheckResult[]; accountingDebug: ClusterAccountingDebug }> {
   const {
     views,
     asset,
@@ -371,6 +454,31 @@ async function buildPinnedDerivedChecks(args: {
   const derivedBurnRate = deriveClusterBurnRate({ ...cluster, feeAsset: asset }, operators, daoValues);
   const derivedLiquidationCollateral = deriveLiquidationCollateral(derivedBurnRate.value, daoValues);
   const expectedLiquidatable = deriveLiquidatableStatus(cluster.active, derivedBalance.value, derivedLiquidationCollateral.value);
+  const accountingDebug: ClusterAccountingDebug = {
+    selectedAsset: asset,
+    localInputs: {
+      cluster: {
+        validatorCount: cluster.validatorCount,
+        networkFeeIndex: cluster.networkFeeIndex,
+        index: cluster.index,
+        active: cluster.active,
+        balance: cluster.balance,
+        effectiveBalance: cluster.effectiveBalance,
+      },
+      operators,
+      daoValues,
+      verificationBlock: verificationBlockNumber,
+    },
+    viewsInputs: {
+      blockTag: verificationBlockTag,
+    },
+    intermediates: {
+      currentBalance: derivedBalance.terms,
+      burnRate: derivedBurnRate.terms,
+      liquidationCollateral: derivedLiquidationCollateral.terms,
+      liquidatable: expectedLiquidatable.terms,
+    },
+  };
 
   const [
     identityChecks,
@@ -414,7 +522,7 @@ async function buildPinnedDerivedChecks(args: {
     viewsMinimumCollateral,
   ]);
 
-  return [
+  const checks = [
     ...baseChecks,
     ...identityChecks,
     ...inputChecks,
@@ -473,6 +581,11 @@ async function buildPinnedDerivedChecks(args: {
       : createViewsReadFailedCheck("liquidatable", String(expectedLiquidatable.value), [viewsLiquidatable.diagnostic]),
     createSubgraphLagCheck(freshness),
   ];
+
+  return {
+    checks,
+    accountingDebug: summarizeAccountingDebug(checks, accountingDebug),
+  };
 }
 
 function hexToBigInt(value: string): bigint {
@@ -487,37 +600,40 @@ async function runMutationCheck(
   const result = await validator();
 
   if (result.status === "revert") {
-    return {
+    return withCheckContract({
       name,
       status: "pass",
+      reason: "matched",
       classification: "verified",
       subgraphValue,
       detail: `Subgraph value matched the Views-validated state; altered input was rejected (${result.detail})`,
-    };
+    });
   }
 
-  return {
+  return withCheckContract({
     name,
     status: "fail",
+    reason: "mismatch",
     classification: "mismatch",
     subgraphValue,
     detail: `Views also accepted an altered ${name} value, so the match could not be proven`,
-  };
+  });
 }
 
 function createAssetTypeCheck(subgraphAsset: FeeAsset, onChainAsset: FeeAsset): ClusterIdentityCheckResult {
   const status: CheckStatus = subgraphAsset === onChainAsset ? "pass" : "fail";
 
-  return {
+  return withCheckContract({
     name: "assetType",
     status,
+    reason: status === "pass" ? "matched" : "mismatch",
     classification: status === "pass" ? "verified" : "mismatch",
     subgraphValue: subgraphAsset,
     viewsValue: onChainAsset,
     detail: status === "pass"
       ? `Subgraph asset type matched the on-chain ${onChainAsset} Views surface`
       : `Subgraph asset type did not match the on-chain ${onChainAsset} Views surface`,
-  };
+  });
 }
 
 function isFeeAsset(value: string | null): value is FeeAsset {
@@ -572,14 +688,15 @@ function createPassCheck(
   detail: string,
   viewsValue?: string,
 ): ClusterIdentityCheckResult {
-  return {
+  return withCheckContract({
     name,
     status: "pass",
+    reason: "matched",
     classification: "verified",
     subgraphValue,
     detail,
     ...(viewsValue ? { viewsValue } : {}),
-  };
+  });
 }
 
 function createBlockedDerivedChecks(
@@ -656,14 +773,15 @@ function createDerivedComparisonCheck(
   passDetail: string,
   failDetail: string,
 ): ClusterIdentityCheckResult {
-  return {
+  return withCheckContract({
     name,
     status: matches ? "pass" : "fail",
+    reason: matches ? "matched" : "mismatch",
     classification: matches ? "verified" : "mismatch",
     subgraphValue,
     viewsValue,
     detail: matches ? passDetail : failDetail,
-  };
+  });
 }
 
 function parseUnsignedDecimalValue(value: string): bigint | null {
@@ -832,6 +950,7 @@ function buildBlockedClusterResult(
     freshness,
     status: summarizeStatus(checks),
     checks,
+    accountingDebug: emptyAccountingDebug(clusterStateCheck.name),
   };
 }
 
@@ -1027,12 +1146,15 @@ export async function verifyClusterIdentity(
     emptyCluster,
   );
 
-  const checks = assetTypeCheck.status !== "pass"
-    ? [
-        createPassCheck("clusterState", cluster.id, "Pinned subgraph cluster snapshot was usable for verification"),
-        assetTypeCheck,
-        ...blockedChecks.filter((check) => check.name !== "assetType"),
-      ]
+  const verification = assetTypeCheck.status !== "pass"
+    ? {
+        checks: [
+          createPassCheck("clusterState", cluster.id, "Pinned subgraph cluster snapshot was usable for verification"),
+          assetTypeCheck,
+          ...blockedChecks.filter((check) => check.name !== "assetType"),
+        ],
+        accountingDebug: emptyAccountingDebug("assetType"),
+      }
     : await (() => {
         const validationAsset: FeeAsset = subgraphAsset!;
         const baselinePromise = views.validateClusterState(validationAsset, cluster.owner, cluster.operatorIds, toViewsClusterState(cluster));
@@ -1050,19 +1172,22 @@ export async function verifyClusterIdentity(
               );
 
           if (baseline.status === "revert") {
-            return [
-              assetTypeCheck,
-              clusterStateCheck,
-              ...createBlockedClusterChecks(
-                validationAsset,
-                `Skipped downstream cluster verification because clusterState was ${clusterStateCheck.status.toUpperCase()}`,
-                "clusterState",
-                emptyCluster,
-              ).filter((check) => check.name !== "assetType"),
-            ];
+            return {
+              checks: [
+                clusterStateCheck,
+                assetTypeCheck,
+                ...createBlockedClusterChecks(
+                  validationAsset,
+                  `Skipped downstream cluster verification because clusterState was ${clusterStateCheck.status.toUpperCase()}`,
+                  "clusterState",
+                  emptyCluster,
+                ).filter((check) => check.name !== "assetType"),
+              ],
+              accountingDebug: emptyAccountingDebug("clusterState"),
+            };
           }
 
-          const baseChecks = [assetTypeCheck, clusterStateCheck];
+          const baseChecks = [clusterStateCheck, assetTypeCheck];
           const identityChecksPromise = Promise.all([
             runMutationCheck("owner", cluster.owner, () =>
               views.validateClusterState(validationAsset, mutateAddress(cluster.owner), cluster.operatorIds, toViewsClusterState(cluster))
@@ -1111,30 +1236,68 @@ export async function verifyClusterIdentity(
                 );
 
             if (blockedInputChecks.length > 0) {
-              return identityChecksPromise.then((identityChecks) => [
-                ...baseChecks,
-                ...identityChecks,
-                daoDataCheck,
-                ...[operatorDataCheck, effectiveBalanceCheck].filter(isPresentCheck),
-                ...createBlockedDerivedChecks(
-                  derivedBlockerDetail,
-                  blockedInputChecks.map((check) => check.name),
-                ),
-              ]);
+              return identityChecksPromise.then((identityChecks) => {
+                const checks = [
+                  ...baseChecks,
+                  ...identityChecks,
+                  daoDataCheck,
+                  ...[operatorDataCheck, effectiveBalanceCheck].filter(isPresentCheck),
+                  ...createBlockedDerivedChecks(
+                    derivedBlockerDetail,
+                    blockedInputChecks.map((check) => check.name),
+                  ),
+                ];
+
+                return {
+                  checks,
+                  accountingDebug: summarizeAccountingDebug(checks, {
+                    selectedAsset: validationAsset,
+                    localInputs: {
+                      cluster: {
+                        validatorCount: cluster.validatorCount,
+                        networkFeeIndex: cluster.networkFeeIndex,
+                        index: cluster.index,
+                        active: cluster.active,
+                        balance: cluster.balance,
+                        effectiveBalance: cluster.effectiveBalance,
+                      },
+                    },
+                  }),
+                };
+              });
             }
 
             if (effectiveBalanceCheck && effectiveBalanceCheck.status !== "pass") {
-              return identityChecksPromise.then((identityChecks) => [
-                ...baseChecks,
-                ...identityChecks,
-                daoDataCheck,
-                ...[operatorDataCheck].filter(isPresentCheck),
-                effectiveBalanceCheck,
-                ...createBlockedDerivedChecks(
-                  `Skipped derived cluster verification because effectiveBalance was ${effectiveBalanceCheck.status.toUpperCase()}`,
-                  ["effectiveBalance"],
-                ),
-              ]);
+              return identityChecksPromise.then((identityChecks) => {
+                const checks = [
+                  ...baseChecks,
+                  ...identityChecks,
+                  daoDataCheck,
+                  ...[operatorDataCheck].filter(isPresentCheck),
+                  effectiveBalanceCheck,
+                  ...createBlockedDerivedChecks(
+                    `Skipped derived cluster verification because effectiveBalance was ${effectiveBalanceCheck.status.toUpperCase()}`,
+                    ["effectiveBalance"],
+                  ),
+                ];
+
+                return {
+                  checks,
+                  accountingDebug: summarizeAccountingDebug(checks, {
+                    selectedAsset: validationAsset,
+                    localInputs: {
+                      cluster: {
+                        validatorCount: cluster.validatorCount,
+                        networkFeeIndex: cluster.networkFeeIndex,
+                        index: cluster.index,
+                        active: cluster.active,
+                        balance: cluster.balance,
+                        effectiveBalance: cluster.effectiveBalance,
+                      },
+                    },
+                  }),
+                };
+              });
             }
 
             const operators = subgraphAccounting.operators.map(normalizeOperatorValue);
@@ -1158,16 +1321,35 @@ export async function verifyClusterIdentity(
           }
 
           if (blockedInputChecks.length > 0) {
-            return identityChecksPromise.then((identityChecks) => [
-              ...baseChecks,
-              ...identityChecks,
-              daoDataCheck,
-              operatorDataCheck,
-              ...createBlockedDerivedChecks(
-                derivedBlockerDetail,
-                blockedInputChecks.map((check) => check.name),
-              ),
-            ]);
+            return identityChecksPromise.then((identityChecks) => {
+              const checks = [
+                ...baseChecks,
+                ...identityChecks,
+                daoDataCheck,
+                operatorDataCheck,
+                ...createBlockedDerivedChecks(
+                  derivedBlockerDetail,
+                  blockedInputChecks.map((check) => check.name),
+                ),
+              ].filter(isPresentCheck);
+
+              return {
+                checks,
+                accountingDebug: summarizeAccountingDebug(checks, {
+                  selectedAsset: validationAsset,
+                  localInputs: {
+                    cluster: {
+                      validatorCount: cluster.validatorCount,
+                      networkFeeIndex: cluster.networkFeeIndex,
+                      index: cluster.index,
+                      active: cluster.active,
+                      balance: cluster.balance,
+                      effectiveBalance: cluster.effectiveBalance,
+                    },
+                  },
+                }),
+              };
+            });
           }
 
           const operators = subgraphAccounting.operators.map(normalizeOperatorValue);
@@ -1191,7 +1373,7 @@ export async function verifyClusterIdentity(
         });
       })();
 
-  const classifiedChecks = applyFreshnessClassification(checks.filter(isPresentCheck), freshness);
+  const classifiedChecks = applyFreshnessClassification(verification.checks.filter(isPresentCheck), freshness);
 
   return {
     network,
@@ -1200,6 +1382,7 @@ export async function verifyClusterIdentity(
     freshness,
     status: summarizeStatus(classifiedChecks),
     checks: classifiedChecks,
+    accountingDebug: summarizeAccountingDebug(classifiedChecks, verification.accountingDebug),
   };
 }
 
@@ -1223,6 +1406,48 @@ export function renderVerifyClusterSummary(result: VerifyClusterResult): string 
   return lines.join("\n");
 }
 
+function jsonScalar(value: unknown): unknown {
+  if (typeof value === "bigint") {
+    return value.toString();
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(jsonScalar);
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, nestedValue]) => nestedValue !== undefined && nestedValue !== null)
+        .map(([key, nestedValue]) => [key, jsonScalar(nestedValue)]),
+    );
+  }
+
+  return value;
+}
+
+export function toPublicVerifyClusterJson(result: VerifyClusterResult): Record<string, unknown> {
+  return {
+    network: result.network,
+    clusterId: result.clusterId,
+    subgraphSource: result.subgraphSource,
+    verificationBlock: result.freshness.indexedBlockNumber,
+    status: result.status,
+    checks: result.checks.map((check) => ({
+      name: check.name,
+      kind: check.kind,
+      status: check.status,
+      reason: check.reason,
+      detail: check.detail,
+      ...(check.subgraphValue !== "blocked" ? { localValue: check.subgraphValue } : {}),
+      ...(check.viewsValue !== undefined ? { viewsValue: check.viewsValue } : {}),
+      ...(check.blockedBy?.length ? { blockedBy: check.blockedBy } : {}),
+      ...(check.diagnostics?.length ? { diagnostics: check.diagnostics } : {}),
+    })),
+    accountingDebug: jsonScalar(result.accountingDebug),
+  };
+}
+
 export function renderVerifyClusterJson(result: VerifyClusterResult): string {
-  return JSON.stringify(result, null, 2);
+  return JSON.stringify(toPublicVerifyClusterJson(result), null, 2);
 }

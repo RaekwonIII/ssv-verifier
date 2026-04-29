@@ -513,11 +513,32 @@ describe("verifyClusterIdentity", () => {
       status: "pass",
     });
     expect(renderVerifyClusterSummary(result)).toContain("verify-cluster PASS");
-    expect(JSON.parse(renderVerifyClusterJson(result))).toMatchObject({
+    const publicJson = JSON.parse(renderVerifyClusterJson(result));
+    expect(publicJson).toMatchObject({
       network: "hoodi",
       clusterId,
+      verificationBlock: 20,
       status: "pass",
+      checks: expect.arrayContaining([
+        expect.objectContaining({
+          name: "currentBalance",
+          kind: "derived",
+          status: "pass",
+          reason: "matched",
+          localValue: "30",
+          viewsValue: "30",
+        }),
+      ]),
+      accountingDebug: expect.objectContaining({
+        selectedAsset: "SSV",
+        localInputs: expect.any(Object),
+        viewsInputs: expect.objectContaining({ blockTag: "0x14" }),
+        intermediates: expect.any(Object),
+      }),
     });
+    expect(publicJson.freshness).toBeUndefined();
+    expect(publicJson.checks[0].classification).toBeUndefined();
+    expect(publicJson.checks[0].subgraphValue).toBeUndefined();
   });
 
   it("reports pinned Views read failures as per-check inconclusive outcomes", async () => {
@@ -804,8 +825,10 @@ describe("verifyClusterIdentity", () => {
       checks: expect.arrayContaining([
         expect.objectContaining({
           name: "currentBalance",
+          kind: "derived",
           status: "fail",
-          subgraphValue: "30",
+          reason: "mismatch",
+          localValue: "30",
           viewsValue: "29",
         }),
       ]),
