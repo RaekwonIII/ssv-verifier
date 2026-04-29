@@ -104,6 +104,16 @@ describe("parseCliArgs", () => {
       output: "text",
     });
   });
+
+  it("rejects irrelevant --cluster flags outside verify-cluster", () => {
+    expect(() => parseCliArgs(["verify-clusters", "--network", "hoodi", "--cluster", "abc"]))
+      .toThrow(/does not accept --cluster/);
+  });
+
+  it("rejects irrelevant --operator flags outside verify-operator", () => {
+    expect(() => parseCliArgs(["verify-operators", "--network", "both", "--operator", "17"]))
+      .toThrow(/does not accept --operator/);
+  });
 });
 
 describe("loadRuntimeConfig", () => {
@@ -115,6 +125,49 @@ describe("loadRuntimeConfig", () => {
     expect(config.networks.mainnet.viewsAddress).toBe("0x0000000000000000000000000000000000000001");
     expect(config.networks.hoodi.subgraphPrimaryUrl).toMatch(/hoodi/);
     expect(config.networks.mainnet.subgraphPrimaryUrl).toMatch(/ethereum/);
+    expect(config.networks.hoodi.rpcUrls).toEqual(["https://hoodi.example"]);
+    expect(config.rpcMaxInflightPerEndpoint).toBe(10);
+  });
+
+  it("parses comma-separated RPC URL pools and trims whitespace", () => {
+    const config = loadRuntimeConfig("both", {
+      ...baseEnv,
+      MAINNET_RPC_URL: "https://m1.example, https://m2.example ,https://m3.example",
+      HOODI_RPC_URL: "https://h1.example,https://h2.example",
+    });
+
+    expect(config.networks.mainnet.rpcUrls).toEqual([
+      "https://m1.example",
+      "https://m2.example",
+      "https://m3.example",
+    ]);
+    expect(config.networks.hoodi.rpcUrls).toEqual([
+      "https://h1.example",
+      "https://h2.example",
+    ]);
+  });
+
+  it("rejects an RPC URL list that contains an invalid entry", () => {
+    expect(() => loadRuntimeConfig("hoodi", {
+      ...baseEnv,
+      HOODI_RPC_URL: "https://ok.example,not-a-url",
+    })).toThrow(/not a valid URL/);
+  });
+
+  it("honors RPC_MAX_INFLIGHT_PER_ENDPOINT when set", () => {
+    const config = loadRuntimeConfig("hoodi", {
+      ...baseEnv,
+      RPC_MAX_INFLIGHT_PER_ENDPOINT: "3",
+    });
+
+    expect(config.rpcMaxInflightPerEndpoint).toBe(3);
+  });
+
+  it("rejects a non-positive RPC_MAX_INFLIGHT_PER_ENDPOINT", () => {
+    expect(() => loadRuntimeConfig("hoodi", {
+      ...baseEnv,
+      RPC_MAX_INFLIGHT_PER_ENDPOINT: "0",
+    })).toThrow(/positive integer/);
   });
 });
 
@@ -197,7 +250,7 @@ describe("runHealthCheck", () => {
     expect(results[0]?.status).toBe("fail");
     expect(renderHealthCheckSummary(results)).toContain("health-check FAIL");
     expect(renderHealthCheckSummary(results)).toContain("subgraph: FAIL");
-    expect(renderHealthCheckSummary(results)).toContain("views: FAIL");
+    expect(renderHealthCheckSummary(results)).toContain("views [https://hoodi.example]: FAIL");
   });
 });
 

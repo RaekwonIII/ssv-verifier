@@ -1,13 +1,15 @@
 import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
-import { fetchAllSubgraphOperatorIds } from "../clients/subgraph.js";
+import { fetchAllSubgraphOperatorDetails } from "../clients/subgraph.js";
+import { createNetworkRpcPool } from "../clients/rpc-pool.js";
+import { createViewsAdapter, type ViewsAdapter } from "../clients/views.js";
 import { summarizeStatuses, type CheckStatus } from "../status.js";
-import { type VerifyOperatorResult, verifyOperatorState } from "./verify-operator.js";
+import { compareOperatorAgainstViews, type VerifyOperatorResult } from "./verify-operator.js";
 
 export interface VerifyOperatorsDependencies {
   fetchFn?: typeof fetch;
-  fetchOperatorIds?: typeof fetchAllSubgraphOperatorIds;
-  verifyOperator?: typeof verifyOperatorState;
+  fetchOperatorDetails?: typeof fetchAllSubgraphOperatorDetails;
+  createViewsAdapter?: (rpcUrls: string[], viewsAddress: string, fetchFn: typeof fetch) => ViewsAdapter;
 }
 
 export interface VerifyOperatorBatchResult extends VerifyOperatorResult {
@@ -45,23 +47,33 @@ async function verifyAllOperatorsForNetwork(
   dependencies: VerifyOperatorsDependencies,
 ): Promise<VerifyOperatorsResult> {
   const fetchFn = dependencies.fetchFn ?? fetch;
-  const fetchOperatorIds = dependencies.fetchOperatorIds ?? fetchAllSubgraphOperatorIds;
-  const verifyOperator = dependencies.verifyOperator ?? verifyOperatorState;
+  const fetchOperatorDetails = dependencies.fetchOperatorDetails ?? fetchAllSubgraphOperatorDetails;
   const networkConfig = config.networks[network];
-  const operatorListing = await fetchOperatorIds(
+  const createViews = dependencies.createViewsAdapter
+    ?? ((urls, viewsAddress, innerFetchFn) => createViewsAdapter(
+      createNetworkRpcPool(config, { ...networkConfig, rpcUrls: urls }, innerFetchFn),
+      viewsAddress,
+    ));
+  const operatorListing = await fetchOperatorDetails(
     networkConfig.subgraphPrimaryUrl,
     networkConfig.subgraphFallbackUrl,
     fetchFn,
   );
-  const singleNetworkConfig = {
-    ...config,
-    selectedNetwork: network,
-    activeNetworks: [network],
-  } satisfies RuntimeConfig;
+  const viewsAdapter = createViews(networkConfig.rpcUrls, networkConfig.viewsAddress, fetchFn);
   const operatorResults = await Promise.all(
-    operatorListing.operatorIds.map(async (operatorId) => {
+    operatorListing.operators.map(async (subgraphOperator) => {
+      const operatorId = subgraphOperator.id;
+
       try {
-        return await verifyOperator(singleNetworkConfig, operatorId, { fetchFn });
+        const viewsDetails = await viewsAdapter.getOperatorDetails(BigInt(operatorId));
+
+        return compareOperatorAgainstViews(
+          network,
+          operatorId,
+          subgraphOperator,
+          viewsDetails,
+          operatorListing.source,
+        );
       } catch (error) {
         return {
           network,

@@ -8,6 +8,7 @@ export interface HealthCheckResult {
   name: "rpc" | "subgraph" | "views";
   status: CheckStatus;
   detail: string;
+  endpoint?: string;
 }
 
 export interface NetworkHealthResult {
@@ -30,7 +31,7 @@ function formatFailureDetail(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function runRpcCheck(rpcUrl: string, fetchFn: typeof fetch): Promise<HealthCheckResult> {
+async function probeRpcEndpoint(rpcUrl: string, fetchFn: typeof fetch): Promise<HealthCheckResult> {
   try {
     const blockHex = await jsonRpcRequest<string>(rpcUrl, "eth_blockNumber", [], fetchFn);
     const blockNumber = Number.parseInt(blockHex, 16);
@@ -39,12 +40,38 @@ async function runRpcCheck(rpcUrl: string, fetchFn: typeof fetch): Promise<Healt
       name: "rpc",
       status: "pass",
       detail: `reachable at block ${blockNumber}`,
+      endpoint: rpcUrl,
     };
   } catch (error) {
     return {
       name: "rpc",
       status: "fail",
       detail: formatFailureDetail(error),
+      endpoint: rpcUrl,
+    };
+  }
+}
+
+async function probeViewsEndpoint(rpcUrl: string, viewsAddress: string, fetchFn: typeof fetch): Promise<HealthCheckResult> {
+  try {
+    const code = await jsonRpcRequest<string>(rpcUrl, "eth_getCode", [viewsAddress, "latest"], fetchFn);
+
+    if (code === "0x") {
+      throw new Error(`no contract bytecode at ${viewsAddress}`);
+    }
+
+    return {
+      name: "views",
+      status: "pass",
+      detail: `contract code found at ${viewsAddress}`,
+      endpoint: rpcUrl,
+    };
+  } catch (error) {
+    return {
+      name: "views",
+      status: "fail",
+      detail: formatFailureDetail(error),
+      endpoint: rpcUrl,
     };
   }
 }
@@ -71,28 +98,6 @@ async function runSubgraphCheck(
   }
 }
 
-async function runViewsCheck(rpcUrl: string, viewsAddress: string, fetchFn: typeof fetch): Promise<HealthCheckResult> {
-  try {
-    const code = await jsonRpcRequest<string>(rpcUrl, "eth_getCode", [viewsAddress, "latest"], fetchFn);
-
-    if (code === "0x") {
-      throw new Error(`no contract bytecode at ${viewsAddress}`);
-    }
-
-    return {
-      name: "views",
-      status: "pass",
-      detail: `contract code found at ${viewsAddress}`,
-    };
-  } catch (error) {
-    return {
-      name: "views",
-      status: "fail",
-      detail: formatFailureDetail(error),
-    };
-  }
-}
-
 export async function runHealthCheck(
   config: RuntimeConfig,
   dependencies: HealthCheckDependencies = {},
@@ -103,11 +108,17 @@ export async function runHealthCheck(
 
   for (const network of config.activeNetworks) {
     const networkConfig = config.networks[network];
-    const checks = [
-      await runRpcCheck(networkConfig.rpcUrl, fetchFn),
-      await runSubgraphCheck(networkConfig.subgraphPrimaryUrl, networkConfig.subgraphFallbackUrl, fetchFn),
-      await runViewsCheck(networkConfig.rpcUrl, networkConfig.viewsAddress, fetchFn),
-    ];
+    const checks: HealthCheckResult[] = [];
+
+    for (const rpcUrl of networkConfig.rpcUrls) {
+      checks.push(await probeRpcEndpoint(rpcUrl, fetchFn));
+    }
+
+    checks.push(await runSubgraphCheck(networkConfig.subgraphPrimaryUrl, networkConfig.subgraphFallbackUrl, fetchFn));
+
+    for (const rpcUrl of networkConfig.rpcUrls) {
+      checks.push(await probeViewsEndpoint(rpcUrl, networkConfig.viewsAddress, fetchFn));
+    }
 
     results.push({
       network,
@@ -127,7 +138,8 @@ export function renderHealthCheckSummary(results: NetworkHealthResult[]): string
     lines.push(`${result.network}: ${result.status.toUpperCase()}`);
 
     for (const check of result.checks) {
-      lines.push(`- ${check.name}: ${check.status.toUpperCase()} (${check.detail})`);
+      const endpoint = check.endpoint ? ` [${check.endpoint}]` : "";
+      lines.push(`- ${check.name}${endpoint}: ${check.status.toUpperCase()} (${check.detail})`);
     }
   }
 

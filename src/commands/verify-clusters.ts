@@ -2,7 +2,29 @@ import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
 import { fetchAllSubgraphClusterIds } from "../clients/subgraph.js";
 import { summarizeStatuses, type CheckStatus } from "../status.js";
-import { type VerifyClusterResult, renderVerifyClusterSummary, verifyClusterIdentity } from "./verify-cluster.js";
+import { parseClusterId } from "../domain/cluster-id.js";
+import {
+  combineClusterBatchSummaries,
+  summarizeClusterBatch,
+  type ClusterBatchSummary,
+} from "../domain/cluster-summary.js";
+import {
+  type ClusterAccountingDebug,
+  type ClusterCheckKind,
+  type ClusterCheckReason,
+  type ClusterIdentityCheckResult,
+  type VerifyClusterDependencies as SingleVerifyClusterDependencies,
+  type VerifyClusterResult,
+  jsonScalar,
+  renderVerifyClusterSummary,
+  toPublicVerifyClusterJson,
+  verifyClusterIdentity,
+} from "./verify-cluster.js";
+
+type VerifyClusterFunctionResult = Omit<VerifyClusterResult, "checks" | "accountingDebug"> & {
+  checks: Array<Partial<ClusterIdentityCheckResult> & Pick<ClusterIdentityCheckResult, "name" | "status" | "detail" | "subgraphValue">>;
+  accountingDebug?: ClusterAccountingDebug;
+};
 
 export interface VerifyClusterBatchResult extends VerifyClusterResult {
   errorDetail?: string;
@@ -11,7 +33,9 @@ export interface VerifyClusterBatchResult extends VerifyClusterResult {
 export interface VerifyClustersResult {
   network: VerifyClusterResult["network"];
   status: CheckStatus;
+  summary: ClusterBatchSummary;
   subgraphSource: "primary" | "fallback";
+  errorDetail?: string;
   totalClusters: number;
   totalChecks: number;
   passedChecks: number;
@@ -24,12 +48,19 @@ export interface VerifyClustersResult {
 export interface VerifyClustersDependencies {
   fetchFn?: typeof fetch;
   fetchClusterIds?: typeof fetchAllSubgraphClusterIds;
-  verifyCluster?: typeof verifyClusterIdentity;
+  verifyCluster?: (
+    config: RuntimeConfig,
+    clusterId: string,
+    dependencies?: SingleVerifyClusterDependencies,
+  ) => Promise<VerifyClusterFunctionResult>;
 }
+
+const CLUSTER_VERIFICATION_CONCURRENCY_LIMIT = 10;
 
 export interface VerifyClustersRunResult {
   selectedNetwork: RuntimeConfig["selectedNetwork"];
   status: CheckStatus;
+  summary: ClusterBatchSummary;
   totalClusters: number;
   totalChecks: number;
   passedChecks: number;
@@ -41,6 +72,111 @@ export interface VerifyClustersRunResult {
 
 function summarizeStatus(statuses: CheckStatus[]): CheckStatus {
   return summarizeStatuses(statuses);
+}
+
+function kindForCheck(name: ClusterIdentityCheckResult["name"]): ClusterCheckKind {
+  if (name === "currentBalance" || name === "burnRate" || name === "liquidationCollateral" || name === "liquidatable") {
+    return "derived";
+  }
+
+  if (name === "subgraphLag") {
+    return "operational";
+  }
+
+  return "input";
+}
+
+function reasonForCheck(check: Partial<ClusterIdentityCheckResult> & Pick<ClusterIdentityCheckResult, "status">): ClusterCheckReason {
+  if (check.reason) {
+    return check.reason;
+  }
+
+  if (check.blockedBy?.length) {
+    return "blocked";
+  }
+
+  if (check.status === "pass") {
+    return "matched";
+  }
+
+  if (check.classification === "mismatch" || check.status === "fail") {
+    return "mismatch";
+  }
+
+  if (check.classification === "lag-affected" || check.status === "warn") {
+    return "lagging";
+  }
+
+  return "unavailable";
+}
+
+function normalizeClusterResult(result: VerifyClusterFunctionResult): VerifyClusterResult {
+  const checks = result.checks.map((check) => ({
+    kind: check.kind ?? kindForCheck(check.name),
+    reason: reasonForCheck(check),
+    classification: check.classification ?? (check.status === "pass" ? "verified" : check.status === "warn" ? "lag-affected" : check.status === "fail" ? "mismatch" : "inconclusive"),
+    ...check,
+  })) satisfies ClusterIdentityCheckResult[];
+
+  return {
+    ...result,
+    checks,
+    accountingDebug: result.accountingDebug ?? {},
+  };
+}
+
+function createMalformedClusterIdResult(
+  network: SingleNetwork,
+  clusterId: string,
+  subgraphSource: "primary" | "fallback",
+  error: Error,
+): VerifyClusterBatchResult {
+  return {
+    network,
+    clusterId,
+    subgraphSource,
+    freshness: {
+      indexedBlockNumber: 0,
+      chainHeadBlockNumber: 0,
+      lagBlocks: 0,
+      status: "fresh",
+    },
+    status: "fail",
+    checks: [
+      {
+        name: "clusterState",
+        kind: "input",
+        status: "fail",
+        reason: "invalid",
+        classification: "mismatch",
+        detail: `Discovered cluster id was malformed: ${error.message}`,
+        subgraphValue: clusterId,
+      },
+    ],
+    accountingDebug: { failureStage: "clusterState" },
+  };
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await mapper(items[currentIndex]!, currentIndex);
+    }
+  }
+
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+  return results;
 }
 
 async function verifyAllClustersForNetwork(
@@ -56,16 +192,47 @@ async function verifyAllClustersForNetwork(
     networkConfig.subgraphPrimaryUrl,
     networkConfig.subgraphFallbackUrl,
     fetchFn,
-  );
+  ).catch((error: unknown) => error instanceof Error ? error : new Error(String(error)));
+
+  if (clusterListing instanceof Error) {
+    return {
+      network,
+      status: "inconclusive",
+      summary: summarizeClusterBatch({ clusterResults: [], discoveryFailureCount: 1 }),
+      subgraphSource: "primary",
+      errorDetail: clusterListing.message,
+      totalClusters: 0,
+      totalChecks: 0,
+      passedChecks: 0,
+      warnedChecks: 0,
+      inconclusiveChecks: 0,
+      failedChecks: 0,
+      clusterResults: [],
+    };
+  }
+
   const singleNetworkConfig = {
     ...config,
     selectedNetwork: network,
     activeNetworks: [network],
   } satisfies RuntimeConfig;
-  const clusterResults = await Promise.all(
-    clusterListing.clusterIds.map(async (clusterId) => {
+  const clusterResults = await mapWithConcurrency(
+    clusterListing.clusterIds,
+    CLUSTER_VERIFICATION_CONCURRENCY_LIMIT,
+    async (clusterId) => {
       try {
-        return await verifyCluster(singleNetworkConfig, clusterId, { fetchFn });
+        parseClusterId(clusterId);
+      } catch (error) {
+        return createMalformedClusterIdResult(
+          network,
+          clusterId,
+          clusterListing.source,
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      }
+
+      try {
+        return normalizeClusterResult(await verifyCluster(singleNetworkConfig, clusterId, { fetchFn }));
       } catch (error) {
         return {
           network,
@@ -80,17 +247,20 @@ async function verifyAllClustersForNetwork(
           status: "inconclusive",
           checks: [
             {
-              name: "currentBalance",
+              name: "clusterState",
+              kind: "input",
               status: "inconclusive",
+              reason: "unavailable",
               classification: "inconclusive",
               detail: error instanceof Error ? error.message : String(error),
-              subgraphValue: "unavailable",
+              subgraphValue: clusterId,
             },
           ],
+          accountingDebug: { failureStage: "clusterState" },
           errorDetail: error instanceof Error ? error.message : String(error),
         } satisfies VerifyClusterBatchResult;
       }
-    }),
+    },
   );
   const totalChecks = clusterResults.reduce((sum, result) => sum + result.checks.length, 0);
   const passedChecks = clusterResults.reduce(
@@ -113,6 +283,7 @@ async function verifyAllClustersForNetwork(
   return {
     network,
     status: summarizeStatus(clusterResults.map((result) => result.status)),
+    summary: summarizeClusterBatch({ clusterResults }),
     subgraphSource: clusterListing.source,
     totalClusters: clusterResults.length,
     totalChecks,
@@ -153,6 +324,7 @@ export async function verifyClusters(
   return {
     selectedNetwork: config.selectedNetwork,
     status: summarizeStatus(networkResults.map((result) => result.status)),
+    summary: combineClusterBatchSummaries(networkResults.map((result) => result.summary)),
     totalClusters,
     totalChecks,
     passedChecks,
@@ -163,32 +335,84 @@ export async function verifyClusters(
   };
 }
 
+function formatSummaryEntries<K extends string>(
+  entries: Record<K, number>,
+): string {
+  const parts = (Object.keys(entries) as K[])
+    .filter((key) => entries[key] > 0)
+    .map((key) => `${key}=${entries[key]}`);
+  return parts.join(", ");
+}
+
+function appendSummaryLines(lines: string[], summary: ClusterBatchSummary, indent: string): void {
+  const rootCauses = formatSummaryEntries(summary.rootCauses);
+  if (rootCauses) {
+    lines.push(`${indent}root causes: ${rootCauses}`);
+  }
+
+  const operational = formatSummaryEntries(summary.operational);
+  if (operational) {
+    lines.push(`${indent}operational: ${operational}`);
+  }
+
+  const discovery = formatSummaryEntries(summary.discovery);
+  if (discovery) {
+    lines.push(`${indent}discovery: ${discovery}`);
+  }
+}
+
 export function renderVerifyClustersSummary(result: VerifyClustersRunResult): string {
   const lines = [
     `verify-clusters ${result.status.toUpperCase()}`,
     `network selection: ${result.selectedNetwork}`,
     `clusters: ${result.totalClusters}`,
-    `checks: ${result.passedChecks} passed / ${result.warnedChecks} warned / ${result.inconclusiveChecks} inconclusive / ${result.failedChecks} failed / ${result.totalChecks} total`,
   ];
+
+  appendSummaryLines(lines, result.summary, "");
 
   for (const networkResult of result.networkResults) {
     lines.push(
-      `- ${networkResult.network}: ${networkResult.passedChecks} passed / ${networkResult.warnedChecks} warned / ${networkResult.inconclusiveChecks} inconclusive / ${networkResult.failedChecks} failed / ${networkResult.totalChecks} total (source=${networkResult.subgraphSource})`,
+      `- ${networkResult.network}: ${networkResult.status.toUpperCase()} clusters=${networkResult.totalClusters} clusterListingSource=${networkResult.subgraphSource}`,
     );
+
+    appendSummaryLines(lines, networkResult.summary, "  ");
+
+    if (networkResult.errorDetail) {
+      lines.push(`  error: ${networkResult.errorDetail}`);
+    }
 
     for (const clusterResult of networkResult.clusterResults.filter((entry) => entry.status !== "pass")) {
       const nonPassingChecks = clusterResult.checks
         .filter((check) => check.status !== "pass")
-        .map((check) => `${check.name}:${check.status}`);
-      lines.push(`- ${networkResult.network}/${clusterResult.clusterId}: non-passing checks=${nonPassingChecks.join(", ")}`);
+        .map((check) => `${check.name}:${check.status.toUpperCase()}(${check.reason})`)
+        .join(",");
+      lines.push(
+        `  - ${clusterResult.clusterId}: ${clusterResult.status.toUpperCase()} checks=${nonPassingChecks}`,
+      );
     }
   }
 
   return lines.join("\n");
 }
 
+export function toPublicVerifyClustersJson(result: VerifyClustersRunResult): Record<string, unknown> {
+  return {
+    selectedNetwork: result.selectedNetwork,
+    status: result.status,
+    summary: jsonScalar(result.summary),
+    networkResults: result.networkResults.map((networkResult) => ({
+      network: networkResult.network,
+      status: networkResult.status,
+      summary: jsonScalar(networkResult.summary),
+      ...(networkResult.subgraphSource ? { clusterListingSource: networkResult.subgraphSource } : {}),
+      ...(networkResult.errorDetail ? { errorDetail: networkResult.errorDetail } : {}),
+      clusterResults: networkResult.clusterResults.map((clusterResult) => toPublicVerifyClusterJson(clusterResult)),
+    })),
+  };
+}
+
 export function renderVerifyClustersJson(result: VerifyClustersRunResult): string {
-  return JSON.stringify(result, null, 2);
+  return JSON.stringify(toPublicVerifyClustersJson(result), null, 2);
 }
 
 export { renderVerifyClusterSummary };

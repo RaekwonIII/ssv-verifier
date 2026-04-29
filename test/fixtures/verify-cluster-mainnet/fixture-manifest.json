@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "generatedFor": "verify-cluster",
+  "network": "mainnet",
+  "fixtures": [
+    {
+      "id": "ok-eth-active",
+      "description": "Healthy mainnet ETH cluster with non-zero balance and zero burn rate",
+      "scenario": "OK",
+      "asset": "ETH",
+      "network": "mainnet",
+      "block": 19000000,
+      "clusterId": "0x0000000000000000000000000000000000000aaa-1-2-3-4",
+      "provenance": {
+        "report": "docs/cluster-balance-validation-report.md",
+        "section": "ok-eth-active"
+      },
+      "artifacts": {
+        "subgraph": "ok-eth-active/subgraph.json",
+        "views": "ok-eth-active/views.json",
+        "expected": "ok-eth-active/expected.json"
+      }
+    },
+    {
+      "id": "false-positive-eth-non-divisible",
+      "description": "Mainnet ETH cluster with non-32-divisible effective balance previously rejected by the legacy verifier",
+      "scenario": "falsePositive",
+      "asset": "ETH",
+      "network": "mainnet",
+      "block": 19500000,
+      "clusterId": "0x0000000000000000000000000000000000000bbb-5-6-7-8",
+      "provenance": {
+        "report": "docs/cluster-balance-validation-report.md",
+        "section": "false-positive-eth-non-divisible"
+      },
+      "artifacts": {
+        "subgraph": "false-positive-eth-non-divisible/subgraph.json",
+        "views": "false-positive-eth-non-divisible/views.json",
+        "expected": "false-positive-eth-non-divisible/expected.json"
+      }
+    }
+  ]
+}

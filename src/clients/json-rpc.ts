@@ -15,6 +15,28 @@ export interface JsonRpcFailure {
 
 type JsonRpcResponse<T> = JsonRpcSuccess<T> | JsonRpcFailure;
 
+export class RpcHttpError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message?: string) {
+    super(message ?? `RPC request failed with status ${status}`);
+    this.name = "RpcHttpError";
+    this.status = status;
+  }
+}
+
+export class RpcMethodError extends Error {
+  readonly code: number;
+  readonly method: string;
+
+  constructor(method: string, code: number, message: string) {
+    super(`RPC ${method} failed: ${message}`);
+    this.name = "RpcMethodError";
+    this.code = code;
+    this.method = method;
+  }
+}
+
 export async function jsonRpcRequest<T>(
   url: string,
   method: string,
@@ -35,13 +57,13 @@ export async function jsonRpcRequest<T>(
   });
 
   if (!response.ok) {
-    throw new Error(`RPC request failed with status ${response.status}`);
+    throw new RpcHttpError(response.status);
   }
 
   const payload = (await response.json()) as JsonRpcResponse<T>;
 
   if ("error" in payload) {
-    throw new Error(`RPC ${method} failed: ${payload.error.message}`);
+    throw new RpcMethodError(method, payload.error.code, payload.error.message);
   }
 
   return payload.result;

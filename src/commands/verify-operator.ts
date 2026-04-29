@@ -1,7 +1,8 @@
 import type { RuntimeConfig } from "../config/env.js";
 import type { SingleNetwork } from "../config/networks.js";
-import { fetchSubgraphOperator } from "../clients/subgraph.js";
-import { createViewsAdapter } from "../clients/views.js";
+import { fetchSubgraphOperator, type SubgraphOperatorDetailsRecord } from "../clients/subgraph.js";
+import { createNetworkRpcPool } from "../clients/rpc-pool.js";
+import { createViewsAdapter, type ViewsOperatorDetails } from "../clients/views.js";
 import { summarizeStatuses, type CheckStatus } from "../status.js";
 
 export interface OperatorCheckResult {
@@ -55,6 +56,32 @@ function createComparableCheck(
   };
 }
 
+export function compareOperatorAgainstViews(
+  network: SingleNetwork,
+  operatorId: string,
+  subgraphOperator: SubgraphOperatorDetailsRecord,
+  viewsDetails: ViewsOperatorDetails,
+  subgraphSource: "primary" | "fallback",
+): VerifyOperatorResult {
+  const activeSubgraphValue = subgraphOperator.removed === null
+    ? null
+    : String(!subgraphOperator.removed);
+  const checks: OperatorCheckResult[] = [
+    createComparableCheck("feeETH", subgraphOperator.fee, viewsDetails.feeETH.toString(), "Operator ETH fee"),
+    createComparableCheck("feeSSV", subgraphOperator.feeSSV, viewsDetails.feeSSV.toString(), "Operator SSV fee"),
+    createComparableCheck("validatorCount", subgraphOperator.validatorCount, String(viewsDetails.validatorCount), "Operator validator count"),
+    createComparableCheck("active", activeSubgraphValue, String(viewsDetails.active), "Operator active flag"),
+  ];
+
+  return {
+    network,
+    operatorId,
+    subgraphSource,
+    status: summarizeStatus(checks),
+    checks,
+  };
+}
+
 export async function verifyOperatorState(
   config: RuntimeConfig,
   operatorId: string,
@@ -74,29 +101,17 @@ export async function verifyOperatorState(
     fetchFn,
   );
   const viewsOperatorId = BigInt(operatorId);
-  const viewsAdapter = createViewsAdapter(networkConfig.rpcUrl, networkConfig.viewsAddress, fetchFn);
-  const [viewsEthFee, viewsSsvFee, viewsDetails] = await Promise.all([
-    viewsAdapter.getOperatorFee("ETH", viewsOperatorId),
-    viewsAdapter.getOperatorFee("SSV", viewsOperatorId),
-    viewsAdapter.getOperatorDetails(viewsOperatorId),
-  ]);
-  const activeSubgraphValue = subgraphOperator.operator.removed === null
-    ? null
-    : String(!subgraphOperator.operator.removed);
-  const checks: OperatorCheckResult[] = [
-    createComparableCheck("feeETH", subgraphOperator.operator.fee, viewsEthFee.toString(), "Operator ETH fee"),
-    createComparableCheck("feeSSV", subgraphOperator.operator.feeSSV, viewsSsvFee.toString(), "Operator SSV fee"),
-    createComparableCheck("validatorCount", subgraphOperator.operator.validatorCount, String(viewsDetails.validatorCount), "Operator validator count"),
-    createComparableCheck("active", activeSubgraphValue, String(viewsDetails.active), "Operator active flag"),
-  ];
+  const rpcClient = createNetworkRpcPool(config, networkConfig, fetchFn);
+  const viewsAdapter = createViewsAdapter(rpcClient, networkConfig.viewsAddress);
+  const viewsDetails = await viewsAdapter.getOperatorDetails(viewsOperatorId);
 
-  return {
+  return compareOperatorAgainstViews(
     network,
     operatorId,
-    subgraphSource: subgraphOperator.source,
-    status: summarizeStatus(checks),
-    checks,
-  };
+    subgraphOperator.operator,
+    viewsDetails,
+    subgraphOperator.source,
+  );
 }
 
 export function renderVerifyOperatorSummary(result: VerifyOperatorResult): string {

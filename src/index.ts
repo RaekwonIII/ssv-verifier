@@ -8,6 +8,7 @@ import { renderVerifyOperatorJson, renderVerifyOperatorSummary, verifyOperatorSt
 import { renderVerifyOperatorsJson, renderVerifyOperatorsSummary, verifyOperators } from "./commands/verify-operators.js";
 import { renderVerifyNetworkJson, renderVerifyNetworkSummary, verifyNetwork } from "./commands/verify-network.js";
 import { isNetworkTarget, supportedNetworks, type NetworkTarget } from "./config/networks.js";
+import { parseClusterId } from "./domain/cluster-id.js";
 import { exitCodeForStatus, summarizeStatuses } from "./status.js";
 
 interface CliArgs {
@@ -111,8 +112,24 @@ export function parseCliArgs(argv: string[]): CliArgs {
     throw new Error("Missing required --network option.");
   }
 
+  if (clusterId && command !== "verify-cluster") {
+    throw new Error(`Command ${command} does not accept --cluster.`);
+  }
+
+  if (operatorId && command !== "verify-operator") {
+    throw new Error(`Command ${command} does not accept --operator.`);
+  }
+
   if (command === "verify-cluster" && !clusterId) {
     throw new Error("Missing required --cluster option.");
+  }
+
+  if (command === "verify-cluster" && network === "both") {
+    throw new Error("verify-cluster does not support --network both. Choose exactly one network.");
+  }
+
+  if (command === "verify-cluster" && clusterId) {
+    clusterId = parseClusterId(clusterId).canonicalId;
   }
 
   if (command === "verify-operator" && !operatorId) {
@@ -138,7 +155,7 @@ export function renderBootstrapSummary(args: CliArgs): string {
 
   for (const network of config.activeNetworks) {
     const entry = config.networks[network];
-    lines.push(`- ${network}: rpc=${entry.rpcUrl} views=${entry.viewsAddress}`);
+    lines.push(`- ${network}: rpc=${entry.rpcUrls.join(",")} views=${entry.viewsAddress}`);
   }
 
   return lines.join("\n");
@@ -167,7 +184,7 @@ export function printHelp(): void {
   console.log(usage);
 }
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   try {
     const args = parseCliArgs(process.argv.slice(2));
     if (args.command === "health-check") {
