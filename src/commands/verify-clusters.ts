@@ -335,24 +335,60 @@ export async function verifyClusters(
   };
 }
 
+function formatSummaryEntries<K extends string>(
+  entries: Record<K, number>,
+): string {
+  const parts = (Object.keys(entries) as K[])
+    .filter((key) => entries[key] > 0)
+    .map((key) => `${key}=${entries[key]}`);
+  return parts.join(", ");
+}
+
+function appendSummaryLines(lines: string[], summary: ClusterBatchSummary, indent: string): void {
+  const rootCauses = formatSummaryEntries(summary.rootCauses);
+  if (rootCauses) {
+    lines.push(`${indent}root causes: ${rootCauses}`);
+  }
+
+  const operational = formatSummaryEntries(summary.operational);
+  if (operational) {
+    lines.push(`${indent}operational: ${operational}`);
+  }
+
+  const discovery = formatSummaryEntries(summary.discovery);
+  if (discovery) {
+    lines.push(`${indent}discovery: ${discovery}`);
+  }
+}
+
 export function renderVerifyClustersSummary(result: VerifyClustersRunResult): string {
   const lines = [
     `verify-clusters ${result.status.toUpperCase()}`,
     `network selection: ${result.selectedNetwork}`,
     `clusters: ${result.totalClusters}`,
-    `checks: ${result.passedChecks} passed / ${result.warnedChecks} warned / ${result.inconclusiveChecks} inconclusive / ${result.failedChecks} failed / ${result.totalChecks} total`,
   ];
+
+  appendSummaryLines(lines, result.summary, "");
 
   for (const networkResult of result.networkResults) {
     lines.push(
-      `- ${networkResult.network}: ${networkResult.passedChecks} passed / ${networkResult.warnedChecks} warned / ${networkResult.inconclusiveChecks} inconclusive / ${networkResult.failedChecks} failed / ${networkResult.totalChecks} total (source=${networkResult.subgraphSource})`,
+      `- ${networkResult.network}: ${networkResult.status.toUpperCase()} clusters=${networkResult.totalClusters} clusterListingSource=${networkResult.subgraphSource}`,
     );
+
+    appendSummaryLines(lines, networkResult.summary, "  ");
+
+    if (networkResult.errorDetail) {
+      lines.push(`  error: ${networkResult.errorDetail}`);
+    }
 
     for (const clusterResult of networkResult.clusterResults.filter((entry) => entry.status !== "pass")) {
       const nonPassingChecks = clusterResult.checks
         .filter((check) => check.status !== "pass")
-        .map((check) => `${check.name}:${check.status}`);
-      lines.push(`- ${networkResult.network}/${clusterResult.clusterId}: non-passing checks=${nonPassingChecks.join(", ")}`);
+        .map((check) => `${check.name}:${check.status.toUpperCase()}(${check.reason})`)
+        .join(",");
+      lines.push(
+        `  - ${clusterResult.clusterId}: ${clusterResult.status.toUpperCase()} checks=${nonPassingChecks}`,
+      );
     }
   }
 

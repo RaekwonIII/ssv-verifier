@@ -161,10 +161,14 @@ describe("verifyAllClusters", () => {
       failedChecks: 1,
     });
     expect(renderVerifyClustersSummary(result)).toContain("network selection: both");
-    expect(renderVerifyClustersSummary(result)).toContain("- hoodi: 0 passed / 1 warned / 0 inconclusive / 0 failed / 1 total");
-    expect(renderVerifyClustersSummary(result)).toContain("- mainnet: 0 passed / 0 warned / 0 inconclusive / 1 failed / 1 total");
-    expect(renderVerifyClustersSummary(result)).toContain(`hoodi/${makeClusterId(11)}: non-passing checks=owner:warn`);
-    expect(renderVerifyClustersSummary(result)).toContain(`mainnet/${makeClusterId(12)}: non-passing checks=owner:fail`);
+    const text = renderVerifyClustersSummary(result);
+    expect(text).toMatch(/^verify-clusters FAIL\nnetwork selection: both\nclusters: 2\nroot causes: owner=2/);
+    expect(text).toContain("- hoodi: WARN clusters=1 clusterListingSource=primary");
+    expect(text).toContain("- mainnet: FAIL clusters=1 clusterListingSource=primary");
+    expect(text).toContain(`  - ${makeClusterId(11)}: WARN checks=owner:WARN(lagging)`);
+    expect(text).toContain(`  - ${makeClusterId(12)}: FAIL checks=owner:FAIL(mismatch)`);
+    expect(text).not.toContain("operational:");
+    expect(text).not.toContain("discovery:");
     const publicJson = JSON.parse(renderVerifyClustersJson(result));
     expect(Object.keys(publicJson)).toEqual(["selectedNetwork", "status", "summary", "networkResults"]);
     expect(publicJson).toMatchObject({
@@ -284,7 +288,7 @@ describe("verifyAllClusters", () => {
       inconclusiveChecks: 1,
       failedChecks: 0,
     });
-    expect(renderVerifyClustersSummary(result)).toContain(`mainnet/${makeClusterId(12)}: non-passing checks=clusterState:inconclusive`);
+    expect(renderVerifyClustersSummary(result)).toContain(`  - ${makeClusterId(12)}: INCONCLUSIVE checks=clusterState:INCONCLUSIVE(unavailable)`);
     expect(JSON.parse(renderVerifyClustersJson(result))).toMatchObject({
       status: "inconclusive",
       summary: expect.objectContaining({
@@ -335,7 +339,7 @@ describe("verifyAllClusters", () => {
       selectedNetwork: "hoodi",
       ...result,
       networkResults: [result],
-    })).toContain("1 inconclusive");
+    })).toContain("- hoodi: INCONCLUSIVE clusters=1 clusterListingSource=primary");
   });
 
   it("preserves clusterState semantics for malformed discovered cluster ids", async () => {
@@ -552,6 +556,57 @@ describe("verifyAllClusters", () => {
       errorDetail: "listing unavailable",
       clusterResults: [],
     });
+  });
+
+
+
+  it("renders root-cause/operational/discovery/error lines and only non-passing clusters", async () => {
+    const config = loadRuntimeConfig("both", baseEnv);
+    const result = await verifyClusters(config, {
+      fetchClusterIds: async (primaryUrl) => {
+        if (primaryUrl.includes("hoodi")) {
+          return { clusterIds: [makeClusterId(31), makeClusterId(32)], source: "primary" };
+        }
+
+        throw new Error("listing unavailable");
+      },
+      verifyCluster: async (runtimeConfig, id) => ({
+        network: runtimeConfig.activeNetworks[0]!,
+        clusterId: id,
+        subgraphSource: "primary",
+        freshness: {
+          indexedBlockNumber: 100,
+          chainHeadBlockNumber: 110,
+          lagBlocks: 10,
+          status: "lagging",
+        },
+        status: id === makeClusterId(31) ? "pass" : "warn",
+        checks: id === makeClusterId(31)
+          ? [
+              { name: "clusterState", kind: "input", status: "pass", reason: "matched", classification: "verified", detail: "matched", subgraphValue: id },
+              { name: "subgraphLag", kind: "operational", status: "warn", reason: "lagging", classification: "lag-affected", detail: "lag", subgraphValue: "100", viewsValue: "110" },
+            ]
+          : [
+              { name: "subgraphLag", kind: "operational", status: "warn", reason: "lagging", classification: "lag-affected", detail: "lag", subgraphValue: "100", viewsValue: "110" },
+            ],
+      }),
+    });
+
+    const text = renderVerifyClustersSummary(result);
+    expect(text.split("\n").slice(0, 3)).toEqual([
+      "verify-clusters INCONCLUSIVE",
+      "network selection: both",
+      "clusters: 2",
+    ]);
+    expect(text).toContain("operational: subgraphLag=2");
+    expect(text).toContain("discovery: clusterListing=1");
+    expect(text).toContain("- hoodi: WARN clusters=2 clusterListingSource=primary");
+    expect(text).toContain("  operational: subgraphLag=2");
+    expect(text).toContain("- mainnet: INCONCLUSIVE clusters=0 clusterListingSource=primary");
+    expect(text).toContain("  discovery: clusterListing=1");
+    expect(text).toContain("  error: listing unavailable");
+    expect(text).toContain(`  - ${makeClusterId(32)}: WARN checks=subgraphLag:WARN(lagging)`);
+    expect(text).not.toContain(makeClusterId(31));
   });
 
 });
