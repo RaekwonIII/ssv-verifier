@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "report": "docs/cluster-balance-validation-report.md",
+    "section": "false-positive-eth-non-divisible"
+  },
+  "scenario": "falsePositive",
+  "asset": "ETH",
+  "network": "mainnet",
+  "clusterId": "0x0000000000000000000000000000000000000bbb-5-6-7-8",
+  "subgraphSource": "primary",
+  "verificationBlock": 19500000,
+  "status": "pass",
+  "checks": [
+    {
+      "name": "clusterState",
+      "kind": "input",
+      "status": "pass",
+      "reason": "matched",
+      "detail": "Pinned subgraph cluster snapshot was usable on the ETH Views surface",
+      "localValue": "0x0000000000000000000000000000000000000bbb-5-6-7-8"
+    },
+    {
+      "name": "assetType",
+      "kind": "input",
+      "status": "pass",
+      "reason": "matched",
+      "detail": "Subgraph asset type matched the on-chain ETH Views surface",
+      "localValue": "ETH",
+      "viewsValue": "ETH"
+    },
+    {
+      "name": "currentBalance",
+      "kind": "derived",
+      "status": "pass",
+      "reason": "matched",
+      "detail": "Derived balance matched pinned Views at block 19500000",
+      "localValue": "0",
+      "viewsValue": "0"
+    },
+    {
+      "name": "burnRate",
+      "kind": "derived",
+      "status": "pass",
+      "reason": "matched",
+      "detail": "Derived burn rate matched pinned Views at block 19500000",
+      "localValue": "0",
+      "viewsValue": "0"
+    },
+    {
+      "name": "liquidationCollateral",
+      "kind": "derived",
+      "status": "pass",
+      "reason": "matched",
+      "detail": "Derived liquidation collateral matched pinned Views inputs at block 19500000",
+      "localValue": "1",
+      "viewsValue": "1"
+    },
+    {
+      "name": "liquidatable",
+      "kind": "derived",
+      "status": "pass",
+      "reason": "matched",
+      "detail": "Derived liquidatable status matched pinned Views at block 19500000",
+      "localValue": "false",
+      "viewsValue": "false"
+    }
+  ],
+  "accountingDebug": {
+    "selectedAsset": "ETH",
+    "intermediates": {
+      "currentBalance": "0",
+      "burnRate": "0",
+      "liquidationCollateral": "1",
+      "liquidatable": false
+    }
+  }
+}

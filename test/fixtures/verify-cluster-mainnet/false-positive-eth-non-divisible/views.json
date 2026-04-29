@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "network": "mainnet",
+  "clusterId": "0x0000000000000000000000000000000000000bbb-5-6-7-8",
+  "blockNumber": 19500000,
+  "assetType": "ETH",
+  "baseline": {
+    "status": "success"
+  },
+  "reads": {
+    "getBalance": "0",
+    "getBurnRate": "0",
+    "isLiquidatable": false,
+    "getLiquidationThresholdPeriod": "1",
+    "getMinimumLiquidationCollateral": "1"
+  }
+}

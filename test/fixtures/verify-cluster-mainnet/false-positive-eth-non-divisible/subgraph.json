@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "network": "mainnet",
+  "clusterId": "0x0000000000000000000000000000000000000bbb-5-6-7-8",
+  "indexedBlockNumber": 19500000,
+  "cluster": {
+    "id": "0x0000000000000000000000000000000000000bbb-5-6-7-8",
+    "owner": "0x0000000000000000000000000000000000000bbb",
+    "operatorIds": [
+      "5",
+      "6",
+      "7",
+      "8"
+    ],
+    "validatorCount": "1",
+    "networkFeeIndex": "0",
+    "index": "0",
+    "active": true,
+    "balance": "0",
+    "feeAsset": "ETH",
+    "effectiveBalance": "65"
+  },
+  "operators": [
+    {
+      "id": "5",
+      "fee": "0",
+      "feeIndex": "0",
+      "feeIndexBlockNumber": "19500000"
+    },
+    {
+      "id": "6",
+      "fee": "0",
+      "feeIndex": "0",
+      "feeIndexBlockNumber": "19500000"
+    },
+    {
+      "id": "7",
+      "fee": "0",
+      "feeIndex": "0",
+      "feeIndexBlockNumber": "19500000"
+    },
+    {
+      "id": "8",
+      "fee": "0",
+      "feeIndex": "0",
+      "feeIndexBlockNumber": "19500000"
+    }
+  ],
+  "daoValues": {
+    "networkFee": "0",
+    "networkFeeIndex": "0",
+    "networkFeeIndexBlockNumber": "19500000",
+    "liquidationThreshold": "1",
+    "minimumLiquidationCollateral": "1"
+  }
+}
