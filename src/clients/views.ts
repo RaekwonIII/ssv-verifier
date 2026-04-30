@@ -9,7 +9,7 @@ export type FeeAsset = "ETH" | "SSV";
 const SSV_ASSET_VERSION = 0n;
 const ETH_ASSET_VERSION = 1n;
 
-type ClusterMethod = "isLiquidatable" | "isLiquidated" | "getBurnRate" | "getBalance";
+type ClusterMethod = "isLiquidatable" | "getBurnRate" | "getBalance";
 type ClusterMethodName = ClusterMethod | `${ClusterMethod}SSV`;
 type NullaryMethod = "getNetworkFee" | "getLiquidationThresholdPeriod" | "getMinimumLiquidationCollateral";
 type NullaryMethodName = NullaryMethod | `${NullaryMethod}SSV`;
@@ -117,7 +117,7 @@ export function createViewsAdapter(
 ): ViewsAdapter {
   return {
     async validateClusterState(asset, owner, operatorIds, cluster) {
-      const methodName = assetMethodName(asset, "isLiquidated") as ClusterMethodName;
+      const methodName = "isLiquidated";
       const data = viewsInterface.encodeFunctionData(methodName, [owner, operatorIds, cluster]);
 
       try {

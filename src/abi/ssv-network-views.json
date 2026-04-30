@@ -2,7 +2,6 @@
   "function isLiquidatable(address clusterOwner, uint64[] operatorIds, (uint32 validatorCount, uint64 networkFeeIndex, uint64 index, bool active, uint256 balance) cluster) view returns (bool isLiquidatable)",
   "function isLiquidatableSSV(address clusterOwner, uint64[] operatorIds, (uint32 validatorCount, uint64 networkFeeIndex, uint64 index, bool active, uint256 balance) cluster) view returns (bool isLiquidatable)",
   "function isLiquidated(address clusterOwner, uint64[] operatorIds, (uint32 validatorCount, uint64 networkFeeIndex, uint64 index, bool active, uint256 balance) cluster) view returns (bool isLiquidated)",
-  "function isLiquidatedSSV(address clusterOwner, uint64[] operatorIds, (uint32 validatorCount, uint64 networkFeeIndex, uint64 index, bool active, uint256 balance) cluster) view returns (bool isLiquidated)",
   "function getBurnRate(address clusterOwner, uint64[] operatorIds, (uint32 validatorCount, uint64 networkFeeIndex, uint64 index, bool active, uint256 balance) cluster) view returns (uint256 burnRate)",
   "function getBurnRateSSV(address clusterOwner, uint64[] operatorIds, (uint32 validatorCount, uint64 networkFeeIndex, uint64 index, bool active, uint256 balance) cluster) view returns (uint256 burnRate)",
   "function getBalance(address clusterOwner, uint64[] operatorIds, (uint32 validatorCount, uint64 networkFeeIndex, uint64 index, bool active, uint256 balance) cluster) view returns (uint256 balance)",
