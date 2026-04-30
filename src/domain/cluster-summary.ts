@@ -6,10 +6,6 @@ export const rootCauseSummaryKeys = [
   "daoData",
   "operatorData",
   "effectiveBalance",
-  "owner",
-  "operatorIds",
-  "validatorCount",
-  "active",
 ] as const;
 
 export const operationalSummaryKeys = ["subgraphLag"] as const;

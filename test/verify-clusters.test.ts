@@ -46,22 +46,22 @@ describe("verifyAllClusters", () => {
         checks: clusterId === makeClusterId(1)
           ? [
               {
-                name: "owner",
+                name: "assetType",
                 status: "pass",
                 classification: "verified",
                 detail: "matched",
-                subgraphValue: "0x1",
-                viewsValue: "0x1",
+                subgraphValue: "ETH",
+                viewsValue: "ETH",
               },
             ]
           : [
               {
-                name: "owner",
+                name: "assetType",
                 status: "pass",
                 classification: "verified",
                 detail: "matched",
-                subgraphValue: "0x2",
-                viewsValue: "0x2",
+                subgraphValue: "ETH",
+                viewsValue: "ETH",
               },
               {
                 name: "currentBalance",
@@ -86,10 +86,6 @@ describe("verifyAllClusters", () => {
           daoData: 0,
           operatorData: 0,
           effectiveBalance: 0,
-          owner: 0,
-          operatorIds: 0,
-          validatorCount: 0,
-          active: 0,
         }),
         operational: { subgraphLag: 0 },
         discovery: { clusterListing: 0 },
@@ -124,22 +120,22 @@ describe("verifyAllClusters", () => {
         checks: clusterId === makeClusterId(11)
           ? [
               {
-                name: "owner",
+                name: "assetType",
                 status: "warn",
                 classification: "lag-affected",
                 detail: "lagged",
-                subgraphValue: "0x1",
-                viewsValue: "0x1",
+                subgraphValue: "ETH",
+                viewsValue: "ETH",
               },
             ]
           : [
               {
-                name: "owner",
+                name: "assetType",
                 status: "fail",
                 classification: "mismatch",
                 detail: "mismatch",
-                subgraphValue: "0x2",
-                viewsValue: "0x3",
+                subgraphValue: "ETH",
+                viewsValue: "SSV",
               },
             ],
       }),
@@ -149,7 +145,7 @@ describe("verifyAllClusters", () => {
       selectedNetwork: "both",
       status: "fail",
       summary: expect.objectContaining({
-        rootCauses: expect.objectContaining({ owner: 2 }),
+        rootCauses: expect.objectContaining({ assetType: 2 }),
         operational: { subgraphLag: 0 },
         discovery: { clusterListing: 0 },
       }),
@@ -162,11 +158,11 @@ describe("verifyAllClusters", () => {
     });
     expect(renderVerifyClustersSummary(result)).toContain("network selection: both");
     const text = renderVerifyClustersSummary(result);
-    expect(text).toMatch(/^verify-clusters FAIL\nnetwork selection: both\nclusters: 2\nroot causes: owner=2/);
+    expect(text).toMatch(/^verify-clusters FAIL\nnetwork selection: both\nclusters: 2\nroot causes: assetType=2/);
     expect(text).toContain("- hoodi: WARN clusters=1 clusterListingSource=primary");
     expect(text).toContain("- mainnet: FAIL clusters=1 clusterListingSource=primary");
-    expect(text).toContain(`  - ${makeClusterId(11)}: WARN checks=owner:WARN(lagging)`);
-    expect(text).toContain(`  - ${makeClusterId(12)}: FAIL checks=owner:FAIL(mismatch)`);
+    expect(text).toContain(`  - ${makeClusterId(11)}: WARN checks=assetType:WARN(lagging)`);
+    expect(text).toContain(`  - ${makeClusterId(12)}: FAIL checks=assetType:FAIL(mismatch)`);
     expect(text).not.toContain("operational:");
     expect(text).not.toContain("discovery:");
     const publicJson = JSON.parse(renderVerifyClustersJson(result));
@@ -175,7 +171,7 @@ describe("verifyAllClusters", () => {
       selectedNetwork: "both",
       status: "fail",
       summary: expect.objectContaining({
-        rootCauses: expect.objectContaining({ owner: 2 }),
+        rootCauses: expect.objectContaining({ assetType: 2 }),
       }),
       networkResults: [
         {
@@ -190,12 +186,12 @@ describe("verifyAllClusters", () => {
               status: "warn",
               checks: [
                 expect.objectContaining({
-                  name: "owner",
+                  name: "assetType",
                   kind: "input",
                   status: "warn",
                   reason: "lagging",
-                  localValue: "0x1",
-                  viewsValue: "0x1",
+                  localValue: "ETH",
+                  viewsValue: "ETH",
                 }),
               ],
               accountingDebug: {},
@@ -214,12 +210,12 @@ describe("verifyAllClusters", () => {
               status: "fail",
               checks: [
                 expect.objectContaining({
-                  name: "owner",
+                  name: "assetType",
                   kind: "input",
                   status: "fail",
                   reason: "mismatch",
-                  localValue: "0x2",
-                  viewsValue: "0x3",
+                  localValue: "ETH",
+                  viewsValue: "SSV",
                 }),
               ],
               accountingDebug: {},
@@ -266,12 +262,12 @@ describe("verifyAllClusters", () => {
           status: "pass",
           checks: [
             {
-              name: "owner",
+              name: "assetType",
               status: "pass",
               classification: "verified",
               detail: "matched",
-              subgraphValue: "0x1",
-              viewsValue: "0x1",
+              subgraphValue: "ETH",
+              viewsValue: "ETH",
             },
           ],
         };
@@ -525,10 +521,6 @@ describe("verifyAllClusters", () => {
           daoData: 0,
           operatorData: 0,
           effectiveBalance: 0,
-          owner: 0,
-          operatorIds: 0,
-          validatorCount: 0,
-          active: 0,
         },
         operational: { subgraphLag: 0 },
         discovery: { clusterListing: 1 },

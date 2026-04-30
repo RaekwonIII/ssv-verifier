@@ -25,10 +25,6 @@ describe("cluster batch summary", () => {
         daoData: 0,
         operatorData: 0,
         effectiveBalance: 0,
-        owner: 0,
-        operatorIds: 0,
-        validatorCount: 0,
-        active: 0,
       },
       operational: {
         subgraphLag: 0,
@@ -68,10 +64,6 @@ describe("cluster batch summary", () => {
         daoData: 1,
         operatorData: 1,
         effectiveBalance: 0,
-        owner: 0,
-        operatorIds: 0,
-        validatorCount: 0,
-        active: 0,
       },
       operational: {
         subgraphLag: 1,
@@ -103,10 +95,6 @@ describe("cluster batch summary", () => {
       "daoData",
       "operatorData",
       "effectiveBalance",
-      "owner",
-      "operatorIds",
-      "validatorCount",
-      "active",
     ]);
     expect(combined.rootCauses.assetType).toBe(1);
     expect(combined.operational.subgraphLag).toBe(1);

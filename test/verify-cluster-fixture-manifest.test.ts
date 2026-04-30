@@ -125,33 +125,26 @@ function createFixtureFetch(subgraph: SubgraphSnapshot, views: ViewsSnapshot): t
         return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeBool(false) }), { status: 200 });
       }
 
-      if (ethCallCount >= 3 && ethCallCount <= 6) {
-        return new Response(
-          JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: 3, message: "execution reverted: IncorrectClusterState" } }),
-          { status: 200 },
-        );
-      }
-
-      if (ethCallCount === 7) {
+      if (ethCallCount === 3) {
         return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeUint256(BigInt(views.reads.getBalance)) }), { status: 200 });
       }
 
-      if (ethCallCount === 8) {
+      if (ethCallCount === 4) {
         return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeUint256(BigInt(views.reads.getBurnRate)) }), { status: 200 });
       }
 
-      if (ethCallCount === 9) {
+      if (ethCallCount === 5) {
         return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeBool(views.reads.isLiquidatable) }), { status: 200 });
       }
 
-      if (ethCallCount === 10) {
+      if (ethCallCount === 6) {
         return new Response(
           JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeUint256(BigInt(views.reads.getLiquidationThresholdPeriod)) }),
           { status: 200 },
         );
       }
 
-      if (ethCallCount === 11) {
+      if (ethCallCount === 7) {
         return new Response(
           JSON.stringify({ jsonrpc: "2.0", id: 1, result: encodeUint256(BigInt(views.reads.getMinimumLiquidationCollateral)) }),
           { status: 200 },

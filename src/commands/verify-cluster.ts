@@ -43,10 +43,6 @@ export interface ClusterIdentityCheckResult {
     | "assetType"
     | "daoData"
     | "operatorData"
-    | "owner"
-    | "operatorIds"
-    | "validatorCount"
-    | "active"
     | "effectiveBalance"
     | "currentBalance"
     | "burnRate"
@@ -212,23 +208,6 @@ function toViewsClusterState(cluster: NormalizedCluster): ViewsClusterState {
     active: cluster.active,
     balance: cluster.balance,
   };
-}
-
-function mutateAddress(address: string): string {
-  const value = BigInt(address);
-  const mutated = (value + 1n) % (1n << 160n);
-  return `0x${mutated.toString(16).padStart(40, "0")}`;
-}
-
-function mutateOperatorIds(operatorIds: bigint[]): bigint[] {
-  if (operatorIds.length === 0) {
-    return [1n];
-  }
-
-  const mutated = [...operatorIds];
-  const lastIndex = mutated.length - 1;
-  mutated[lastIndex] = mutated[lastIndex]! + 1n;
-  return mutated;
 }
 
 function formatOperatorIds(operatorIds: bigint[]): string {
@@ -425,7 +404,6 @@ async function buildPinnedDerivedChecks(args: {
   daoValues: Pick<NormalizedDaoValues, "networkFee" | "networkFeeIndex" | "networkFeeIndexBlockNumber" | "liquidationThreshold" | "minimumLiquidationCollateral">;
   baseChecks: ClusterIdentityCheckResult[];
   inputChecks: ClusterIdentityCheckResult[];
-  identityChecksPromise: Promise<ClusterIdentityCheckResult[]>;
   verificationBlockNumber: bigint;
   verificationBlockTag: string;
   freshness: SubgraphFreshness;
@@ -438,7 +416,6 @@ async function buildPinnedDerivedChecks(args: {
     daoValues,
     baseChecks,
     inputChecks,
-    identityChecksPromise,
     verificationBlockNumber,
     verificationBlockTag,
     freshness,
@@ -475,14 +452,12 @@ async function buildPinnedDerivedChecks(args: {
   };
 
   const [
-    identityChecks,
     viewsBalance,
     viewsBurnRate,
     viewsLiquidatable,
     viewsLiquidationThreshold,
     viewsMinimumCollateral,
   ] = await Promise.all([
-    identityChecksPromise,
     settleViewsRead(
       "getBalance",
       verificationBlockTag,
@@ -518,7 +493,6 @@ async function buildPinnedDerivedChecks(args: {
 
   const checks = [
     ...baseChecks,
-    ...identityChecks,
     ...inputChecks,
     viewsBalance.status === "success"
       ? createDerivedComparisonCheck(
@@ -586,34 +560,6 @@ function hexToBigInt(value: string): bigint {
   return BigInt(value);
 }
 
-async function runMutationCheck(
-  name: ClusterIdentityCheckResult["name"],
-  subgraphValue: string,
-  validator: () => Promise<{ status: "success" | "revert"; detail: string }>,
-): Promise<ClusterIdentityCheckResult> {
-  const result = await validator();
-
-  if (result.status === "revert") {
-    return withCheckContract({
-      name,
-      status: "pass",
-      reason: "matched",
-      classification: "verified",
-      subgraphValue,
-      detail: `Subgraph value matched the Views-validated state; altered input was rejected (${result.detail})`,
-    });
-  }
-
-  return withCheckContract({
-    name,
-    status: "fail",
-    reason: "mismatch",
-    classification: "mismatch",
-    subgraphValue,
-    detail: `Views also accepted an altered ${name} value, so the match could not be proven`,
-  });
-}
-
 function createAssetTypeCheck(subgraphAsset: FeeAsset, onChainAsset: FeeAsset): ClusterIdentityCheckResult {
   const status: CheckStatus = subgraphAsset === onChainAsset ? "pass" : "fail";
 
@@ -645,10 +591,6 @@ function clusterChecksForAsset(
   const checkNames: ClusterIdentityCheckResult["name"][] = [
     "assetType",
     "daoData",
-    "owner",
-    "operatorIds",
-    "validatorCount",
-    "active",
     "currentBalance",
     "burnRate",
     "liquidationCollateral",
@@ -660,7 +602,7 @@ function clusterChecksForAsset(
   }
 
   if (asset === "ETH" && !emptyCluster) {
-    checkNames.splice(7, 0, "effectiveBalance");
+    checkNames.splice(3, 0, "effectiveBalance");
   }
 
   return checkNames;
@@ -1204,26 +1146,6 @@ async function runClusterIdentityVerification(
           }
 
           const baseChecks = [clusterStateCheck, assetTypeCheck];
-          const identityChecksPromise = Promise.all([
-            runMutationCheck("owner", cluster.owner, () =>
-              views.validateClusterState(validationAsset, mutateAddress(cluster.owner), cluster.operatorIds, toViewsClusterState(cluster))
-            ),
-            runMutationCheck("operatorIds", formatOperatorIds(cluster.operatorIds), () =>
-              views.validateClusterState(validationAsset, cluster.owner, mutateOperatorIds(cluster.operatorIds), toViewsClusterState(cluster))
-            ),
-            runMutationCheck("validatorCount", String(cluster.validatorCount), () =>
-              views.validateClusterState(validationAsset, cluster.owner, cluster.operatorIds, {
-                ...toViewsClusterState(cluster),
-                validatorCount: cluster.validatorCount + 1,
-              })
-            ),
-            runMutationCheck("active", String(cluster.active), () =>
-              views.validateClusterState(validationAsset, cluster.owner, cluster.operatorIds, {
-                ...toViewsClusterState(cluster),
-                active: !cluster.active,
-              })
-            ),
-          ]);
           const daoDataCheck = validateSelectedDaoData(validationAsset, subgraphAccounting.daoValues);
           const operatorDataCheck = emptyCluster
             ? null
@@ -1252,102 +1174,15 @@ async function runClusterIdentityVerification(
                 );
 
             if (blockedInputChecks.length > 0) {
-              return identityChecksPromise.then((identityChecks) => {
-                const checks = [
-                  ...baseChecks,
-                  ...identityChecks,
-                  daoDataCheck,
-                  ...[operatorDataCheck, effectiveBalanceCheck].filter(isPresentCheck),
-                  ...createBlockedDerivedChecks(
-                    derivedBlockerDetail,
-                    blockedInputChecks.map((check) => check.name),
-                  ),
-                ];
-
-                return {
-                  checks,
-                  accountingDebug: summarizeAccountingDebug(checks, {
-                    selectedAsset: validationAsset,
-                    localInputs: {
-                      cluster: {
-                        validatorCount: cluster.validatorCount,
-                        networkFeeIndex: cluster.networkFeeIndex,
-                        index: cluster.index,
-                        active: cluster.active,
-                        balance: cluster.balance,
-                        effectiveBalance: cluster.effectiveBalance,
-                      },
-                    },
-                  }),
-                };
-              });
-            }
-
-            if (effectiveBalanceCheck && effectiveBalanceCheck.status !== "pass") {
-              return identityChecksPromise.then((identityChecks) => {
-                const checks = [
-                  ...baseChecks,
-                  ...identityChecks,
-                  daoDataCheck,
-                  ...[operatorDataCheck].filter(isPresentCheck),
-                  effectiveBalanceCheck,
-                  ...createBlockedDerivedChecks(
-                    `Skipped derived cluster verification because effectiveBalance was ${effectiveBalanceCheck.status.toUpperCase()}`,
-                    ["effectiveBalance"],
-                  ),
-                ];
-
-                return {
-                  checks,
-                  accountingDebug: summarizeAccountingDebug(checks, {
-                    selectedAsset: validationAsset,
-                    localInputs: {
-                      cluster: {
-                        validatorCount: cluster.validatorCount,
-                        networkFeeIndex: cluster.networkFeeIndex,
-                        index: cluster.index,
-                        active: cluster.active,
-                        balance: cluster.balance,
-                        effectiveBalance: cluster.effectiveBalance,
-                      },
-                    },
-                  }),
-                };
-              });
-            }
-
-            const operators = subgraphAccounting.operators.map(normalizeOperatorValue);
-            const daoValues = normalizeDaoValues(subgraphAccounting.daoValues!);
-            const selectedOperators = emptyCluster ? [] : selectOperatorAccounting(validationAsset, operators);
-            const selectedDaoValues = selectDaoAccounting(validationAsset, daoValues);
-
-            return buildPinnedDerivedChecks({
-              views,
-              asset: validationAsset,
-              cluster,
-              operators: selectedOperators,
-              daoValues: selectedDaoValues,
-              baseChecks,
-              inputChecks: [daoDataCheck, operatorDataCheck, effectiveBalanceCheck].filter(isPresentCheck),
-              identityChecksPromise,
-              verificationBlockNumber,
-              verificationBlockTag,
-              freshness,
-            });
-          }
-
-          if (blockedInputChecks.length > 0) {
-            return identityChecksPromise.then((identityChecks) => {
               const checks = [
                 ...baseChecks,
-                ...identityChecks,
                 daoDataCheck,
-                operatorDataCheck,
+                ...[operatorDataCheck, effectiveBalanceCheck].filter(isPresentCheck),
                 ...createBlockedDerivedChecks(
                   derivedBlockerDetail,
                   blockedInputChecks.map((check) => check.name),
                 ),
-              ].filter(isPresentCheck);
+              ];
 
               return {
                 checks,
@@ -1365,7 +1200,84 @@ async function runClusterIdentityVerification(
                   },
                 }),
               };
+            }
+
+            if (effectiveBalanceCheck && effectiveBalanceCheck.status !== "pass") {
+              const checks = [
+                ...baseChecks,
+                daoDataCheck,
+                ...[operatorDataCheck].filter(isPresentCheck),
+                effectiveBalanceCheck,
+                ...createBlockedDerivedChecks(
+                  `Skipped derived cluster verification because effectiveBalance was ${effectiveBalanceCheck.status.toUpperCase()}`,
+                  ["effectiveBalance"],
+                ),
+              ];
+
+              return {
+                checks,
+                accountingDebug: summarizeAccountingDebug(checks, {
+                  selectedAsset: validationAsset,
+                  localInputs: {
+                    cluster: {
+                      validatorCount: cluster.validatorCount,
+                      networkFeeIndex: cluster.networkFeeIndex,
+                      index: cluster.index,
+                      active: cluster.active,
+                      balance: cluster.balance,
+                      effectiveBalance: cluster.effectiveBalance,
+                    },
+                  },
+                }),
+              };
+            }
+
+            const operators = subgraphAccounting.operators.map(normalizeOperatorValue);
+            const daoValues = normalizeDaoValues(subgraphAccounting.daoValues!);
+            const selectedOperators = emptyCluster ? [] : selectOperatorAccounting(validationAsset, operators);
+            const selectedDaoValues = selectDaoAccounting(validationAsset, daoValues);
+
+            return buildPinnedDerivedChecks({
+              views,
+              asset: validationAsset,
+              cluster,
+              operators: selectedOperators,
+              daoValues: selectedDaoValues,
+              baseChecks,
+              inputChecks: [daoDataCheck, operatorDataCheck, effectiveBalanceCheck].filter(isPresentCheck),
+              verificationBlockNumber,
+              verificationBlockTag,
+              freshness,
             });
+          }
+
+          if (blockedInputChecks.length > 0) {
+            const checks = [
+              ...baseChecks,
+              daoDataCheck,
+              operatorDataCheck,
+              ...createBlockedDerivedChecks(
+                derivedBlockerDetail,
+                blockedInputChecks.map((check) => check.name),
+              ),
+            ].filter(isPresentCheck);
+
+            return {
+              checks,
+              accountingDebug: summarizeAccountingDebug(checks, {
+                selectedAsset: validationAsset,
+                localInputs: {
+                  cluster: {
+                    validatorCount: cluster.validatorCount,
+                    networkFeeIndex: cluster.networkFeeIndex,
+                    index: cluster.index,
+                    active: cluster.active,
+                    balance: cluster.balance,
+                    effectiveBalance: cluster.effectiveBalance,
+                  },
+                },
+              }),
+            };
           }
 
           const operators = subgraphAccounting.operators.map(normalizeOperatorValue);
@@ -1381,7 +1293,6 @@ async function runClusterIdentityVerification(
             daoValues: selectedDaoValues,
             baseChecks,
             inputChecks: [daoDataCheck, operatorDataCheck].filter(isPresentCheck),
-            identityChecksPromise,
             verificationBlockNumber,
             verificationBlockTag,
             freshness,

@@ -60,7 +60,7 @@ Cluster ID grammar:
 
 Result shape:
 - An ordered, root-cause-first list of `checks`. Each check has `name`, `kind` (`input` / `derived` / `operational`), `status`, `reason`, and `detail`.
-- Input gates run first, in canonical order: `clusterState`, `assetType`, identity checks, `daoData`, `operatorData` (omitted for empty clusters), and `effectiveBalance` (ETH non-empty clusters only).
+- Input gates run first, in canonical order: `clusterState`, `assetType`, `daoData`, `operatorData` (omitted for empty clusters), and `effectiveBalance` (ETH non-empty clusters only).
 - Derived checks run independently once applicable input gates pass: `currentBalance`, `burnRate`, `liquidationCollateral`, `liquidatable`.
 - The operational `subgraphLag` check warns only when the subgraph trails the chain head by more than three blocks; same-block mismatches remain hard mismatches.
 - Blocked downstream checks stay visible with `reason: blocked`, explicit `blockedBy` metadata, and no comparison values.
@@ -93,7 +93,7 @@ Execution model:
 
 Batch summary model:
 - Every per-network and overall result includes a fixed zero-filled summary object with three buckets:
-  - `rootCauses`: counts only real non-blocked input causes (keys include `clusterState`, `assetType`, `daoData`, `operatorData`, `effectiveBalance`, `owner`, `operatorIds`, `validatorCount`, `active`).
+  - `rootCauses`: counts only real non-blocked input causes (keys include `clusterState`, `assetType`, `daoData`, `operatorData`, `effectiveBalance`).
   - `operational`: counts lag warnings.
   - `discovery`: counts only network-level cluster-listing failures.
 
