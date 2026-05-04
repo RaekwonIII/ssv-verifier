@@ -41,35 +41,29 @@ describe("cluster accounting", () => {
       liquidatable: false,
     });
     expect(result.intermediates.currentBalance).toMatchObject({
-      precision: 10_000_000n,
-      operatorCurrentIndexSum: 32n,
-      totalCurrentIndexes: 60n,
-      totalClusterIndex: 0n,
-      indexDelta: 60n,
-      balanceDelta: {
-        asset: "SSV",
-        rawValue: 60n,
-        numerator: 2n,
-        divisor: 1n,
-        scaledValue: 120n,
-      },
+      scalingFactor: 10_000_000n,
+      cumulativeOperatorFee: 32n,
+      cumulativeNetworkFee: 28n,
+      billingUnits: 2n,
+      billingDivisor: 1n,
+      balanceDelta: 120n,
       startingBalance: 500n,
     });
     expect(result.intermediates.burnRate).toMatchObject({
       operatorFeeSum: 8n,
       networkFee: 7n,
       totalFeeRate: 15n,
-      burnRate: {
-        scaledValue: 30n,
-      },
+      billingUnits: 2n,
+      billingDivisor: 1n,
+      burnRate: 30n,
     });
   });
 
   it("uses vUnits-scaled ETH accounting with packed fees", () => {
-    // Mirrors the post-staking-update SSVViews path: operator/network fees are
-    // packed by ETH_DEDUCTED_DIGITS (100_000) before accumulating into the
-    // index, and balance usage is scaled by vUnits / VUNITS_PRECISION (with
-    // ceiling on non-divisible effective balances).
+    // Post-staking-update ETH path: operator/network fees are accumulated in
+    // expanded (subgraph) space, then packed by scalingFactor (100_000) before
+    // scaling by vUnits. Operator and network deltas are floored independently
+    // to match the on-chain Views contract.
     const balance = deriveCurrentClusterBalance(
       {
         feeAsset: "ETH",
@@ -99,29 +93,32 @@ describe("cluster accounting", () => {
       { networkFee: 300_000n },
     );
 
-    // packed op fee = 2, packed net fee = 3, blocks elapsed = 100
-    // newOpIdx = 200, newNetIdx = 300
-    // vUnits = ceil(59 * 10_000 / 32) = ceil(18437.5) = 18438
+    // cumulativeOperatorFee = 20_000_000, cumulativeNetworkFee = 30_000_000
+    // packed op = 200, packed net = 300
+    // vUnits = ceil(59 * 10_000 / 32) = 18438
     // operator usage = floor(200 * 18438 / 10_000) = 368
     // network  usage = floor(300 * 18438 / 10_000) = 553
     // total usage units = 921, balance delta = 921 * 100_000 = 92_100_000
-    expect(balance.terms.balanceDelta).toMatchObject({
-      asset: "ETH",
-      rawValue: 500n,
-      numerator: 18438n,
-      divisor: 10_000n,
-      scaledValue: 92_100_000n,
+    expect(balance.terms).toMatchObject({
+      scalingFactor: 100_000n,
+      cumulativeOperatorFee: 20_000_000n,
+      cumulativeNetworkFee: 30_000_000n,
+      billingUnits: 18438n,
+      billingDivisor: 10_000n,
+      balanceDelta: 92_100_000n,
+      startingBalance: 100_000_000_000_000n,
     });
     expect(balance.value).toBe(99_999_907_900_000n);
 
     // burn rate: floor((200_000 + 300_000) * 18438 / 10_000) = 921_900
     expect(burnRate.value).toBe(921_900n);
-    expect(burnRate.terms.burnRate).toMatchObject({
-      asset: "ETH",
-      rawValue: 500_000n,
-      numerator: 18438n,
-      divisor: 10_000n,
-      scaledValue: 921_900n,
+    expect(burnRate.terms).toMatchObject({
+      operatorFeeSum: 200_000n,
+      networkFee: 300_000n,
+      totalFeeRate: 500_000n,
+      billingUnits: 18438n,
+      billingDivisor: 10_000n,
+      burnRate: 921_900n,
     });
   });
 
@@ -175,8 +172,8 @@ describe("cluster accounting", () => {
       liquidationCollateral: 5n,
       liquidatable: false,
     });
-    expect(result.intermediates.currentBalance.balanceDelta.scaledValue).toBe(0n);
-    expect(result.intermediates.burnRate.burnRate.scaledValue).toBe(0n);
+    expect(result.intermediates.currentBalance.balanceDelta).toBe(0n);
+    expect(result.intermediates.burnRate.burnRate).toBe(0n);
   });
 
   it("derives liquidation helpers from the pure accounting values", () => {
