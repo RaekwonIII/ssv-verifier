@@ -202,24 +202,26 @@ owner_address = cluster["owner"]["id"]
 
 ## Index Field Packing
 
-Most subgraph values are returned raw and can be used directly. Index fields are the exception — they are stored in packed form and must be multiplied by `PRECISION` before use in protocol formulas.
+Most subgraph values are returned raw and can be used directly. The fee-index fields need a small adjustment to line up with the on-chain `uint64` accumulators.
 
-| Field | Must Multiply? | Factor |
+The contract stores `cluster.index`, `cluster.networkFeeIndex`, `operator.snapshot.index`, and the protocol-level `networkFeeIndex` as **packed `uint64` accumulators** that grow each block by `(blockDelta * packed_fee)`, where `packed_fee = unpacked_fee / DEDUCTED_DIGITS`.
+
+The subgraph mirrors the contract for `cluster.*` fields, but it accumulates `operator.feeIndex(SSV)` and `daovalues.networkFeeIndex(SSV)` in **unpacked** space (`feeIndex += blockDelta * unpacked_fee`). To combine the two consistently, divide the unpacked values by `DEDUCTED_DIGITS` (or pack the fee instead — same result).
+
+| Field | Storage form (subgraph) | To use with packed `cluster.*` indices |
 |---|---|---|
-| `cluster.index` | Yes | `PRECISION` |
-| `cluster.networkFeeIndex` | Yes | `PRECISION` |
-| `operator.feeIndex` | Yes | `PRECISION` |
-| `operator.feeIndexSSV` | Yes | `PRECISION` |
-| `daovalues.networkFeeIndex` | Yes | `PRECISION` |
-| `daovalues.networkFeeIndexSSV` | Yes | `PRECISION` |
-| All fee values | No | — |
-| All balance values | No | — |
-| All collateral values | No | — |
-| All threshold values | No | — |
+| `cluster.index` | packed `uint64` (raw from event) | use as-is |
+| `cluster.networkFeeIndex` | packed `uint64` (raw from event) | use as-is |
+| `operator.feeIndex`, `operator.feeIndexSSV` | unpacked accumulator | divide by `DEDUCTED_DIGITS` |
+| `daovalues.networkFeeIndex`, `daovalues.networkFeeIndexSSV` | unpacked accumulator | divide by `DEDUCTED_DIGITS` |
+| All fee values | unpacked, native units per block | pack with `/ DEDUCTED_DIGITS` when accumulating |
+| All balance / collateral / threshold values | unpacked native units | use as-is |
 
-PRECISION values (see `ssv-protocol.md`):
+`DEDUCTED_DIGITS` values (see `ssv-protocol.md`):
 - ETH clusters: `100,000` (10^5)
 - SSV clusters: `10,000,000` (10^7)
+
+Note that older versions of this guide instructed callers to multiply *every* index field by `PRECISION`. That over-inflates the operator and DAO indices because the subgraph already accumulates them in unpacked space. Mixing the two conventions silently produces large negative balances on clusters whose operator `feeIndex` is non-zero.
 
 ---
 
@@ -286,25 +288,41 @@ You also need the current block number from RPC or subgraph `_meta`.
 ### Example: Calculate burn rate
 
 ```python
+DEDUCTED_DIGITS_ETH = 100_000
+VUNITS_PRECISION = 10_000
+ETH_VALIDATOR_CAPACITY = 32
+
+def eb_to_vunits(eb):
+    scaled = eb * VUNITS_PRECISION
+    return 0 if scaled == 0 else (scaled - 1) // ETH_VALIDATOR_CAPACITY + 1
+
 operator_fees = [int(op["fee"]) for op in operators]
 network_fee = int(dao["networkFee"])
-effective_balance = int(cluster["effectiveBalance"])
+v_units = eb_to_vunits(int(cluster["effectiveBalance"]))
 
-scale = effective_balance // 32
-burn_rate = (sum(operator_fees) + network_fee) * scale
+burn_rate = ((sum(operator_fees) + network_fee) * v_units) // VUNITS_PRECISION
 ```
 
 ### Example: Calculate current balance
 
 ```python
-PRECISION_ETH = 100_000
-current_block = 2435000
+DEDUCTED_DIGITS_ETH = 100_000
+VUNITS_PRECISION = 10_000
+ETH_VALIDATOR_CAPACITY = 32
+current_block = 2_435_000
 
-def current_index(packed_index, fee, index_block, current_block):
-    return (packed_index * PRECISION_ETH) + (current_block - index_block) * fee
+def eb_to_vunits(eb):
+    scaled = eb * VUNITS_PRECISION
+    return 0 if scaled == 0 else (scaled - 1) // ETH_VALIDATOR_CAPACITY + 1
+
+def packed_current_index(unpacked_base, unpacked_fee, base_block, current_block):
+    """Project an unpacked operator/DAO index into the contract's packed uint64 space."""
+    packed_base = unpacked_base // DEDUCTED_DIGITS_ETH
+    packed_fee = unpacked_fee // DEDUCTED_DIGITS_ETH
+    return packed_base + (current_block - base_block) * packed_fee
 
 operator_indexes = sum(
-    current_index(
+    packed_current_index(
         int(op["feeIndex"]),
         int(op["fee"]),
         int(op["feeIndexBlockNumber"]),
@@ -313,22 +331,29 @@ operator_indexes = sum(
     for op in operators
 )
 
-network_index = current_index(
+network_index = packed_current_index(
     int(dao["networkFeeIndex"]),
     int(dao["networkFee"]),
     int(dao["networkFeeIndexBlockNumber"]),
     current_block,
 )
 
-cluster_index = int(cluster["index"]) * PRECISION_ETH
-cluster_nfi = int(cluster["networkFeeIndex"]) * PRECISION_ETH
-total_current = operator_indexes + network_index
-total_cluster = cluster_index + cluster_nfi
-index_delta = total_current - total_cluster
+cluster_index = int(cluster["index"])               # already packed (raw uint64)
+cluster_nfi = int(cluster["networkFeeIndex"])       # already packed (raw uint64)
+operator_delta = operator_indexes - cluster_index
+network_delta = network_index - cluster_nfi
 
-scale = int(cluster["effectiveBalance"]) // 32
-current_balance = max(0, int(cluster["balance"]) - index_delta * scale)
+v_units = eb_to_vunits(int(cluster["effectiveBalance"]))
+
+# Floor each delta independently before expanding — the contract does the same.
+operator_usage_units = (operator_delta * v_units) // VUNITS_PRECISION
+network_usage_units = (network_delta * v_units) // VUNITS_PRECISION
+balance_delta = (operator_usage_units + network_usage_units) * DEDUCTED_DIGITS_ETH
+
+current_balance = int(cluster["balance"]) - balance_delta
 ```
+
+For SSV clusters, replace the `vUnits / VUNITS_PRECISION` scaling with `cluster.validatorCount` and use `DEDUCTED_DIGITS_SSV = 10_000_000`. The packed/unpacked index split is the same (`cluster.index` packed, `operator.feeIndexSSV` / `daovalues.networkFeeIndexSSV` unpacked).
 
 ### Example: Calculate liquidation collateral
 

@@ -128,7 +128,7 @@ function createEmptyClusterFetchFn(options: {
               liquidationThreshold: viewsLiquidationThreshold.toString(),
               minimumLiquidationCollateral: viewsMinimumCollateral.toString(),
               networkFeeSSV: "64",
-              networkFeeIndexSSV: "10",
+              networkFeeIndexSSV: "100000000",
               networkFeeIndexBlockNumberSSV: "20",
               liquidationThresholdSSV: viewsLiquidationThreshold.toString(),
               minimumLiquidationCollateralSSV: viewsMinimumCollateral.toString(),
@@ -322,10 +322,10 @@ describe("verify-cluster command integration", () => {
           JSON.stringify({
             data: {
               operators: [
-                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
-                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
-                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
-                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "2", feeIndexBlockNumberSSV: "20" },
+                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "100000000", feeIndexBlockNumberSSV: "20" },
+                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "50000000", feeIndexBlockNumberSSV: "20" },
+                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "30000000", feeIndexBlockNumberSSV: "20" },
+                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "20000000", feeIndexBlockNumberSSV: "20" },
               ],
               daovalues: {
                 networkFee: "0",
@@ -334,7 +334,7 @@ describe("verify-cluster command integration", () => {
                 liquidationThreshold: "1",
                 minimumLiquidationCollateral: "1",
                 networkFeeSSV: "0",
-                networkFeeIndexSSV: "10",
+                networkFeeIndexSSV: "100000000",
                 networkFeeIndexBlockNumberSSV: "20",
                 liquidationThresholdSSV: "1",
                 minimumLiquidationCollateralSSV: "1",
@@ -521,10 +521,10 @@ describe("verify-cluster command integration", () => {
           JSON.stringify({
             data: {
               operators: [
-                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
-                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
-                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
-                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "2", feeIndexBlockNumberSSV: "20" },
+                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "100000000", feeIndexBlockNumberSSV: "20" },
+                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "50000000", feeIndexBlockNumberSSV: "20" },
+                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "30000000", feeIndexBlockNumberSSV: "20" },
+                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "20000000", feeIndexBlockNumberSSV: "20" },
               ],
               daovalues: {
                 networkFee: "0",
@@ -533,7 +533,7 @@ describe("verify-cluster command integration", () => {
                 liquidationThreshold: "1",
                 minimumLiquidationCollateral: "1",
                 networkFeeSSV: "0",
-                networkFeeIndexSSV: "10",
+                networkFeeIndexSSV: "100000000",
                 networkFeeIndexBlockNumberSSV: "20",
                 liquidationThresholdSSV: "1",
                 minimumLiquidationCollateralSSV: "1",
@@ -664,10 +664,10 @@ describe("verify-cluster command integration", () => {
           JSON.stringify({
             data: {
               operators: [
-                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
-                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
-                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
-                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "2", feeIndexBlockNumberSSV: "20" },
+                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "100000000", feeIndexBlockNumberSSV: "20" },
+                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "50000000", feeIndexBlockNumberSSV: "20" },
+                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "30000000", feeIndexBlockNumberSSV: "20" },
+                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "20000000", feeIndexBlockNumberSSV: "20" },
               ],
               daovalues: {
                 networkFee: "0",
@@ -676,7 +676,7 @@ describe("verify-cluster command integration", () => {
                 liquidationThreshold: "1",
                 minimumLiquidationCollateral: "1",
                 networkFeeSSV: "0",
-                networkFeeIndexSSV: "10",
+                networkFeeIndexSSV: "100000000",
                 networkFeeIndexBlockNumberSSV: "20",
                 liquidationThresholdSSV: "1",
                 minimumLiquidationCollateralSSV: "1",
@@ -770,10 +770,10 @@ describe("verify-cluster command integration", () => {
           JSON.stringify({
             data: {
               operators: [
-                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
-                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
-                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
-                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "2", feeIndexBlockNumberSSV: "20" },
+                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "100000000", feeIndexBlockNumberSSV: "20" },
+                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "50000000", feeIndexBlockNumberSSV: "20" },
+                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "30000000", feeIndexBlockNumberSSV: "20" },
+                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "20000000", feeIndexBlockNumberSSV: "20" },
               ],
               daovalues: {
                 networkFee: "0",
@@ -782,7 +782,7 @@ describe("verify-cluster command integration", () => {
                 liquidationThreshold: "1",
                 minimumLiquidationCollateral: "1",
                 networkFeeSSV: "0",
-                networkFeeIndexSSV: "10",
+                networkFeeIndexSSV: "100000000",
                 networkFeeIndexBlockNumberSSV: "20",
                 liquidationThresholdSSV: "1",
                 minimumLiquidationCollateralSSV: "1",
@@ -875,8 +875,8 @@ describe("verify-cluster command integration", () => {
                 owner: { id: "0xe8c927a1fa792eddefe23fda643a62e03f999830" },
                 operatorIds: ["5", "6", "7", "523"],
                 validatorCount: "1",
-                networkFeeIndex: "10",
-                index: "20",
+                networkFeeIndex: "0",
+                index: "0",
                 active: true,
                 balance: "30",
                 feeAsset: "ETH",
@@ -893,19 +893,19 @@ describe("verify-cluster command integration", () => {
           JSON.stringify({
             data: {
               operators: [
-                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
-                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
-                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
-                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "2", feeIndexBlockNumberSSV: "20" },
+                { id: "5", fee: "0", feeIndex: "0", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "0", feeIndexBlockNumberSSV: "20" },
+                { id: "6", fee: "0", feeIndex: "0", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "0", feeIndexBlockNumberSSV: "20" },
+                { id: "7", fee: "0", feeIndex: "0", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "0", feeIndexBlockNumberSSV: "20" },
+                { id: "523", fee: "0", feeIndex: "0", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "0", feeIndexBlockNumberSSV: "20" },
               ],
               daovalues: {
                 networkFee: "0",
-                networkFeeIndex: "10",
+                networkFeeIndex: "0",
                 networkFeeIndexBlockNumber: "20",
                 liquidationThreshold: "1",
                 minimumLiquidationCollateral: "1",
                 networkFeeSSV: "0",
-                networkFeeIndexSSV: "10",
+                networkFeeIndexSSV: "0",
                 networkFeeIndexBlockNumberSSV: "20",
                 liquidationThresholdSSV: "1",
                 minimumLiquidationCollateralSSV: "1",
@@ -1013,8 +1013,8 @@ describe("verify-cluster command integration", () => {
                 owner: { id: "0xe8c927a1fa792eddefe23fda643a62e03f999830" },
                 operatorIds: ["5", "6", "7", "523"],
                 validatorCount: "1",
-                networkFeeIndex: "10",
-                index: "20",
+                networkFeeIndex: "0",
+                index: "0",
                 active: true,
                 balance: "30",
                 feeAsset: "ETH",
@@ -1031,19 +1031,19 @@ describe("verify-cluster command integration", () => {
           JSON.stringify({
             data: {
               operators: [
-                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
-                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
-                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
-                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "2", feeIndexBlockNumberSSV: "20" },
+                { id: "5", fee: "0", feeIndex: "0", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "0", feeIndexBlockNumberSSV: "20" },
+                { id: "6", fee: "0", feeIndex: "0", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "0", feeIndexBlockNumberSSV: "20" },
+                { id: "7", fee: "0", feeIndex: "0", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "0", feeIndexBlockNumberSSV: "20" },
+                { id: "523", fee: "0", feeIndex: "0", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "0", feeIndexBlockNumberSSV: "20" },
               ],
               daovalues: {
                 networkFee: "0",
-                networkFeeIndex: "10",
+                networkFeeIndex: "0",
                 networkFeeIndexBlockNumber: "20",
                 liquidationThreshold: "1",
                 minimumLiquidationCollateral: "1",
                 networkFeeSSV: "0",
-                networkFeeIndexSSV: "10",
+                networkFeeIndexSSV: "0",
                 networkFeeIndexBlockNumberSSV: "20",
                 liquidationThresholdSSV: "1",
                 minimumLiquidationCollateralSSV: "1",
@@ -1123,10 +1123,10 @@ describe("verify-cluster command integration", () => {
           JSON.stringify({
             data: {
               operators: [
-                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
-                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
-                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
-                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "2", feeIndexBlockNumberSSV: "20" },
+                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "100000000", feeIndexBlockNumberSSV: "20" },
+                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "50000000", feeIndexBlockNumberSSV: "20" },
+                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "30000000", feeIndexBlockNumberSSV: "20" },
+                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "20000000", feeIndexBlockNumberSSV: "20" },
               ],
               daovalues: {
                 networkFee: "0",
@@ -1135,7 +1135,7 @@ describe("verify-cluster command integration", () => {
                 liquidationThreshold: "1",
                 minimumLiquidationCollateral: "1",
                 networkFeeSSV: "0",
-                networkFeeIndexSSV: "10",
+                networkFeeIndexSSV: "100000000",
                 networkFeeIndexBlockNumberSSV: "20",
                 liquidationThresholdSSV: "1",
                 minimumLiquidationCollateralSSV: "1",
@@ -1222,8 +1222,8 @@ describe("verify-cluster command integration", () => {
                 owner: { id: "0xe8c927a1fa792eddefe23fda643a62e03f999830" },
                 operatorIds: ["5", "6", "7", "523"],
                 validatorCount: "1",
-                networkFeeIndex: "10",
-                index: "20",
+                networkFeeIndex: "0",
+                index: "0",
                 active: true,
                 balance: "30",
                 feeAsset: "ETH",
@@ -1240,19 +1240,19 @@ describe("verify-cluster command integration", () => {
           JSON.stringify({
             data: {
               operators: [
-                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
-                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
-                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
-                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "2", feeIndexBlockNumberSSV: "20" },
+                { id: "5", fee: "0", feeIndex: "0", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "0", feeIndexBlockNumberSSV: "20" },
+                { id: "6", fee: "0", feeIndex: "0", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "0", feeIndexBlockNumberSSV: "20" },
+                { id: "7", fee: "0", feeIndex: "0", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "0", feeIndexBlockNumberSSV: "20" },
+                { id: "523", fee: "0", feeIndex: "0", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "0", feeIndexBlockNumberSSV: "20" },
               ],
               daovalues: {
                 networkFee: "0",
-                networkFeeIndex: "10",
+                networkFeeIndex: "0",
                 networkFeeIndexBlockNumber: "20",
                 liquidationThreshold: "1",
                 minimumLiquidationCollateral: "1",
                 networkFeeSSV: "0",
-                networkFeeIndexSSV: "10",
+                networkFeeIndexSSV: "0",
                 networkFeeIndexBlockNumberSSV: "20",
                 liquidationThresholdSSV: "1",
                 minimumLiquidationCollateralSSV: "1",
@@ -1357,10 +1357,10 @@ describe("verify-cluster command integration", () => {
           JSON.stringify({
             data: {
               operators: [
-                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
-                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
-                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
-                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "2", feeIndexBlockNumberSSV: "20" },
+                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "100000000", feeIndexBlockNumberSSV: "20" },
+                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "50000000", feeIndexBlockNumberSSV: "20" },
+                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "30000000", feeIndexBlockNumberSSV: "20" },
+                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "20000000", feeIndexBlockNumberSSV: "20" },
               ],
               daovalues: {
                 networkFee: "0",
@@ -1369,7 +1369,7 @@ describe("verify-cluster command integration", () => {
                 liquidationThreshold: "1",
                 minimumLiquidationCollateral: "1",
                 networkFeeSSV: "0",
-                networkFeeIndexSSV: "10",
+                networkFeeIndexSSV: "100000000",
                 networkFeeIndexBlockNumberSSV: "20",
                 liquidationThresholdSSV: "1",
                 minimumLiquidationCollateralSSV: "1",
@@ -1475,10 +1475,10 @@ describe("verify-cluster command integration", () => {
           JSON.stringify({
             data: {
               operators: [
-                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
-                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
-                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
-                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "2", feeIndexBlockNumberSSV: "20" },
+                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "100000000", feeIndexBlockNumberSSV: "20" },
+                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "50000000", feeIndexBlockNumberSSV: "20" },
+                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "30000000", feeIndexBlockNumberSSV: "20" },
+                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "20000000", feeIndexBlockNumberSSV: "20" },
               ],
               daovalues: {
                 networkFee: "0",
@@ -1487,7 +1487,7 @@ describe("verify-cluster command integration", () => {
                 liquidationThreshold: "1",
                 minimumLiquidationCollateral: "1",
                 networkFeeSSV: "0",
-                networkFeeIndexSSV: "10",
+                networkFeeIndexSSV: "100000000",
                 networkFeeIndexBlockNumberSSV: "20",
                 liquidationThresholdSSV: "1",
                 minimumLiquidationCollateralSSV: "1",
@@ -1601,10 +1601,10 @@ describe("verify-cluster command integration", () => {
           JSON.stringify({
             data: {
               operators: [
-                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
-                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
-                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
-                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "2", feeIndexBlockNumberSSV: "20" },
+                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "100000000", feeIndexBlockNumberSSV: "20" },
+                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "50000000", feeIndexBlockNumberSSV: "20" },
+                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "30000000", feeIndexBlockNumberSSV: "20" },
+                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "20000000", feeIndexBlockNumberSSV: "20" },
               ],
               daovalues: {
                 networkFee: "0",
@@ -1613,7 +1613,7 @@ describe("verify-cluster command integration", () => {
                 liquidationThreshold: "1",
                 minimumLiquidationCollateral: "1",
                 networkFeeSSV: "0",
-                networkFeeIndexSSV: "10",
+                networkFeeIndexSSV: "100000000",
                 networkFeeIndexBlockNumberSSV: "20",
                 liquidationThresholdSSV: "1",
                 minimumLiquidationCollateralSSV: "1",
@@ -1796,7 +1796,7 @@ describe("verify-cluster command integration", () => {
                 liquidationThreshold: "1",
                 minimumLiquidationCollateral: "1",
                 networkFeeSSV: "0",
-                networkFeeIndexSSV: "10",
+                networkFeeIndexSSV: "100000000",
                 networkFeeIndexBlockNumberSSV: "20",
                 liquidationThresholdSSV: "1",
                 minimumLiquidationCollateralSSV: "1",
@@ -1878,10 +1878,10 @@ describe("verify-cluster command integration", () => {
           JSON.stringify({
             data: {
               operators: [
-                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
-                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
-                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
-                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "2", feeIndexBlockNumberSSV: "20" },
+                { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "100000000", feeIndexBlockNumberSSV: "20" },
+                { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "50000000", feeIndexBlockNumberSSV: "20" },
+                { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "30000000", feeIndexBlockNumberSSV: "20" },
+                { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "20000000", feeIndexBlockNumberSSV: "20" },
               ],
               daovalues: {
                 networkFee: "0",

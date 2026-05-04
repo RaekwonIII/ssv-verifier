@@ -19,7 +19,9 @@ verification.
 
 A mainnet ETH cluster verified at block 19,500,000 whose `effectiveBalance` is
 not divisible by 32 ETH. The legacy verifier rejected this scenario as a
-divisibility violation; the rewritten verifier follows cluster-balance-tool
-multiply-then-divide semantics and is expected to verify successfully because
-the derived current balance, burn rate, liquidation collateral, and
-liquidatable status all match pinned Views reads at the verification block.
+divisibility violation; the current verifier mirrors the on-chain
+`updateBalanceWithEB` path by deriving `vUnits = ceil(effectiveBalance *
+VUNITS_PRECISION / 32)` and flooring each scaled index delta independently
+before expanding by `DEDUCTED_DIGITS`. The derived current balance, burn rate,
+liquidation collateral, and liquidatable status all match pinned Views reads
+at the verification block.

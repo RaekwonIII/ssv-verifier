@@ -101,7 +101,7 @@ function createFetch(options: {
               liquidationThreshold: "1",
               minimumLiquidationCollateral: "1",
               networkFeeSSV: "0",
-              networkFeeIndexSSV: "10",
+              networkFeeIndexSSV: "100000000",
               networkFeeIndexBlockNumberSSV: "20",
               liquidationThresholdSSV: "1",
               minimumLiquidationCollateralSSV: "1",
@@ -154,10 +154,10 @@ describe("cluster input gates", () => {
       fetchFn: createFetch({
         cluster: { feeAsset: "SSV" },
         operators: [
-          { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
-          { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
-          { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
-          { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "2", feeIndexBlockNumberSSV: "20" },
+          { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "100000000", feeIndexBlockNumberSSV: "20" },
+          { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "50000000", feeIndexBlockNumberSSV: "20" },
+          { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "30000000", feeIndexBlockNumberSSV: "20" },
+          { id: "523", fee: "0", feeIndex: "2", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "20000000", feeIndexBlockNumberSSV: "20" },
         ],
       }),
     });
@@ -197,9 +197,9 @@ describe("cluster input gates", () => {
       fetchFn: createFetch({
         cluster: { feeAsset: "SSV" },
         operators: [
-          { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "10", feeIndexBlockNumberSSV: "20" },
-          { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "5", feeIndexBlockNumberSSV: "20" },
-          { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "3", feeIndexBlockNumberSSV: "20" },
+          { id: "5", fee: "0", feeIndex: "10", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "100000000", feeIndexBlockNumberSSV: "20" },
+          { id: "6", fee: "0", feeIndex: "5", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "50000000", feeIndexBlockNumberSSV: "20" },
+          { id: "7", fee: "0", feeIndex: "3", feeIndexBlockNumber: "20", feeSSV: "0", feeIndexSSV: "30000000", feeIndexBlockNumberSSV: "20" },
         ],
       }),
     });

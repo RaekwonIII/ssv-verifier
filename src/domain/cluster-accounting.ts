@@ -1,7 +1,8 @@
 import type { FeeAsset } from "../clients/views.js";
 
-const ETH_PRECISION = 100_000n;
-const LEGACY_SSV_PRECISION = 10_000_000n;
+const ETH_DEDUCTED_DIGITS = 100_000n;
+const SSV_DEDUCTED_DIGITS = 10_000_000n;
+const VUNITS_PRECISION = 10_000n;
 const ETH_VALIDATOR_CAPACITY = 32n;
 
 export interface ClusterAccountingClusterInputs {
@@ -73,6 +74,7 @@ export interface LiquidationCollateralTerms {
 
 export interface LiquidatableTerms {
   active: boolean;
+  validatorCount: number;
   currentBalance: bigint;
   liquidationCollateral: bigint;
 }
@@ -96,83 +98,106 @@ export interface ClusterAccountingResult {
   intermediates: ClusterAccountingIntermediates;
 }
 
-function precisionForAsset(asset: FeeAsset): bigint {
-  return asset === "ETH" ? ETH_PRECISION : LEGACY_SSV_PRECISION;
+// Ceiling division of `effectiveBalance * VUNITS_PRECISION / ETH_VALIDATOR_CAPACITY`.
+// Mirrors the contract's `ebToVUnits` helper used by `updateBalanceWithEB` and
+// `getBurnRate` in the post-staking-update SSVViews module.
+function effectiveBalanceToVUnits(effectiveBalance: bigint): bigint {
+  const scaled = effectiveBalance * VUNITS_PRECISION;
+  if (scaled === 0n) return 0n;
+  return ((scaled - 1n) / ETH_VALIDATOR_CAPACITY) + 1n;
 }
 
-function currentIndex(
-  baseIndex: bigint,
-  fee: bigint,
+function ethCurrentIndex(
+  unpackedBaseIndex: bigint,
+  rawFee: bigint,
   startBlock: bigint,
   currentBlock: bigint,
-  precision: bigint,
 ): CurrentIndexTerms {
+  // The contract accumulates `op.snapshot.index` and `sp.networkFeeIndex` using
+  // the *packed* fee (rawFee / ETH_DEDUCTED_DIGITS). The subgraph stores the
+  // unpacked fee in `operator.fee` / `daovalues.networkFee` and the unpacked
+  // index in `operator.feeIndex` / `daovalues.networkFeeIndex` (it accumulates
+  // by `unpackedFee * blockDelta`). We project both back into contract space
+  // by packing them with ETH_DEDUCTED_DIGITS so the result stays aligned with
+  // the on-chain uint64 indices that `cluster.index` and
+  // `cluster.networkFeeIndex` are stored in.
+  const packedFee = rawFee / ETH_DEDUCTED_DIGITS;
+  const packedBaseIndex = unpackedBaseIndex / ETH_DEDUCTED_DIGITS;
   return {
-    baseIndex,
-    fee,
+    baseIndex: unpackedBaseIndex,
+    fee: rawFee,
     startBlock,
     currentBlock,
-    precision,
-    currentIndex: (baseIndex * precision) + ((currentBlock - startBlock) * fee),
+    precision: ETH_DEDUCTED_DIGITS,
+    currentIndex: packedBaseIndex + (currentBlock - startBlock) * packedFee,
   };
 }
 
-function scaleForAsset(
-  asset: FeeAsset,
-  rawValue: bigint,
-  cluster: Pick<ClusterAccountingClusterInputs, "effectiveBalance" | "validatorCount">,
-): AssetScaledValueTerms {
-  if (asset === "ETH") {
-    const numerator = cluster.effectiveBalance ?? 0n;
-
-    return {
-      asset,
-      rawValue,
-      numerator,
-      divisor: ETH_VALIDATOR_CAPACITY,
-      scaledValue: (rawValue * numerator) / ETH_VALIDATOR_CAPACITY,
-    };
-  }
-
-  const numerator = BigInt(cluster.validatorCount);
-
+function ssvCurrentIndex(
+  baseIndex: bigint,
+  rawFee: bigint,
+  startBlock: bigint,
+  currentBlock: bigint,
+  baseIndexAlreadyExpanded: boolean,
+): CurrentIndexTerms {
+  // Legacy SSV semantics (pre-staking-update). `cluster.index` and
+  // `cluster.networkFeeIndex` are stored packed (raw uint64), but the subgraph
+  // exposes `operator.feeIndexSSV` and `daovalues.networkFeeIndexSSV` already
+  // multiplied by SSV_DEDUCTED_DIGITS. We work in unpacked space throughout
+  // and pack the final balance delta back via validatorCount scaling.
+  const expandedBase = baseIndexAlreadyExpanded ? baseIndex : baseIndex * SSV_DEDUCTED_DIGITS;
   return {
-    asset,
-    rawValue,
-    numerator,
-    divisor: 1n,
-    scaledValue: rawValue * numerator,
+    baseIndex,
+    fee: rawFee,
+    startBlock,
+    currentBlock,
+    precision: SSV_DEDUCTED_DIGITS,
+    currentIndex: expandedBase + (currentBlock - startBlock) * rawFee,
   };
 }
 
-export function deriveCurrentClusterBalance(
-  cluster: Pick<ClusterAccountingClusterInputs, "feeAsset" | "effectiveBalance" | "validatorCount" | "networkFeeIndex" | "index" | "balance">,
+function deriveEthCurrentClusterBalance(
+  cluster: Pick<ClusterAccountingClusterInputs, "effectiveBalance" | "validatorCount" | "networkFeeIndex" | "index" | "balance">,
   operators: ReadonlyArray<ClusterAccountingOperatorInputs>,
   daoValues: Pick<ClusterAccountingDaoInputs, "networkFee" | "networkFeeIndex" | "networkFeeIndexBlockNumber">,
   currentBlock: bigint,
 ): { value: bigint; terms: CurrentBalanceTerms } {
-  const precision = precisionForAsset(cluster.feeAsset);
   const operatorCurrentIndexes = operators.map((operator) =>
-    currentIndex(operator.feeIndex, operator.fee, operator.feeIndexBlockNumber, currentBlock, precision)
+    ethCurrentIndex(operator.feeIndex, operator.fee, operator.feeIndexBlockNumber, currentBlock),
   );
-  const operatorCurrentIndexSum = operatorCurrentIndexes.reduce((sum, operator) => sum + operator.currentIndex, 0n);
-  const networkCurrentIndex = currentIndex(
+  const operatorCurrentIndexSum = operatorCurrentIndexes.reduce((sum, op) => sum + op.currentIndex, 0n);
+  const networkCurrentIndex = ethCurrentIndex(
     daoValues.networkFeeIndex,
     daoValues.networkFee,
     daoValues.networkFeeIndexBlockNumber,
     currentBlock,
-    precision,
   );
+  const operatorIndexDelta = operatorCurrentIndexSum - cluster.index;
+  const networkIndexDelta = networkCurrentIndex.currentIndex - cluster.networkFeeIndex;
   const totalCurrentIndexes = operatorCurrentIndexSum + networkCurrentIndex.currentIndex;
-  const totalClusterIndex = (cluster.index * precision) + (cluster.networkFeeIndex * precision);
+  const totalClusterIndex = cluster.index + cluster.networkFeeIndex;
   const indexDelta = totalCurrentIndexes - totalClusterIndex;
-  const balanceDelta = scaleForAsset(cluster.feeAsset, indexDelta, cluster);
-  const value = cluster.balance - balanceDelta.scaledValue;
+  const vUnits = effectiveBalanceToVUnits(cluster.effectiveBalance ?? 0n);
+  // The contract floors each delta independently before summing, then expands
+  // by ETH_DEDUCTED_DIGITS. Doing the same here (rather than scaling the merged
+  // `indexDelta`) is what produces a bit-exact match with the Views surface.
+  const operatorUsageUnits = (operatorIndexDelta * vUnits) / VUNITS_PRECISION;
+  const networkUsageUnits = (networkIndexDelta * vUnits) / VUNITS_PRECISION;
+  const usageUnits = operatorUsageUnits + networkUsageUnits;
+  const scaledValue = usageUnits * ETH_DEDUCTED_DIGITS;
+  const balanceDelta: AssetScaledValueTerms = {
+    asset: "ETH",
+    rawValue: indexDelta,
+    numerator: vUnits,
+    divisor: VUNITS_PRECISION,
+    scaledValue,
+  };
+  const value = cluster.balance - scaledValue;
 
   return {
     value,
     terms: {
-      precision,
+      precision: ETH_DEDUCTED_DIGITS,
       operatorCurrentIndexes,
       operatorCurrentIndexSum,
       networkCurrentIndex,
@@ -185,6 +210,65 @@ export function deriveCurrentClusterBalance(
   };
 }
 
+function deriveSsvCurrentClusterBalance(
+  cluster: Pick<ClusterAccountingClusterInputs, "validatorCount" | "networkFeeIndex" | "index" | "balance">,
+  operators: ReadonlyArray<ClusterAccountingOperatorInputs>,
+  daoValues: Pick<ClusterAccountingDaoInputs, "networkFee" | "networkFeeIndex" | "networkFeeIndexBlockNumber">,
+  currentBlock: bigint,
+): { value: bigint; terms: CurrentBalanceTerms } {
+  const operatorCurrentIndexes = operators.map((operator) =>
+    ssvCurrentIndex(operator.feeIndex, operator.fee, operator.feeIndexBlockNumber, currentBlock, true),
+  );
+  const operatorCurrentIndexSum = operatorCurrentIndexes.reduce((sum, op) => sum + op.currentIndex, 0n);
+  const networkCurrentIndex = ssvCurrentIndex(
+    daoValues.networkFeeIndex,
+    daoValues.networkFee,
+    daoValues.networkFeeIndexBlockNumber,
+    currentBlock,
+    true,
+  );
+  const totalCurrentIndexes = operatorCurrentIndexSum + networkCurrentIndex.currentIndex;
+  const totalClusterIndex = (cluster.index * SSV_DEDUCTED_DIGITS) + (cluster.networkFeeIndex * SSV_DEDUCTED_DIGITS);
+  const indexDelta = totalCurrentIndexes - totalClusterIndex;
+  const validatorCount = BigInt(cluster.validatorCount);
+  const scaledValue = indexDelta * validatorCount;
+  const balanceDelta: AssetScaledValueTerms = {
+    asset: "SSV",
+    rawValue: indexDelta,
+    numerator: validatorCount,
+    divisor: 1n,
+    scaledValue,
+  };
+  const value = cluster.balance - scaledValue;
+
+  return {
+    value,
+    terms: {
+      precision: SSV_DEDUCTED_DIGITS,
+      operatorCurrentIndexes,
+      operatorCurrentIndexSum,
+      networkCurrentIndex,
+      totalCurrentIndexes,
+      totalClusterIndex,
+      indexDelta,
+      balanceDelta,
+      startingBalance: cluster.balance,
+    },
+  };
+}
+
+export function deriveCurrentClusterBalance(
+  cluster: Pick<ClusterAccountingClusterInputs, "feeAsset" | "effectiveBalance" | "validatorCount" | "networkFeeIndex" | "index" | "balance">,
+  operators: ReadonlyArray<ClusterAccountingOperatorInputs>,
+  daoValues: Pick<ClusterAccountingDaoInputs, "networkFee" | "networkFeeIndex" | "networkFeeIndexBlockNumber">,
+  currentBlock: bigint,
+): { value: bigint; terms: CurrentBalanceTerms } {
+  if (cluster.feeAsset === "ETH") {
+    return deriveEthCurrentClusterBalance(cluster, operators, daoValues, currentBlock);
+  }
+  return deriveSsvCurrentClusterBalance(cluster, operators, daoValues, currentBlock);
+}
+
 export function deriveClusterBurnRate(
   cluster: Pick<ClusterAccountingClusterInputs, "feeAsset" | "effectiveBalance" | "validatorCount">,
   operators: ReadonlyArray<Pick<ClusterAccountingOperatorInputs, "fee">>,
@@ -192,16 +276,37 @@ export function deriveClusterBurnRate(
 ): { value: bigint; terms: BurnRateTerms } {
   const operatorFeeSum = operators.reduce((sum, operator) => sum + operator.fee, 0n);
   const totalFeeRate = operatorFeeSum + daoValues.networkFee;
-  const burnRate = scaleForAsset(cluster.feeAsset, totalFeeRate, cluster);
+
+  if (cluster.feeAsset === "ETH") {
+    const vUnits = effectiveBalanceToVUnits(cluster.effectiveBalance ?? 0n);
+    const scaledValue = (totalFeeRate * vUnits) / VUNITS_PRECISION;
+    const burnRate: AssetScaledValueTerms = {
+      asset: "ETH",
+      rawValue: totalFeeRate,
+      numerator: vUnits,
+      divisor: VUNITS_PRECISION,
+      scaledValue,
+    };
+
+    return {
+      value: scaledValue,
+      terms: { operatorFeeSum, networkFee: daoValues.networkFee, totalFeeRate, burnRate },
+    };
+  }
+
+  const validatorCount = BigInt(cluster.validatorCount);
+  const scaledValue = totalFeeRate * validatorCount;
+  const burnRate: AssetScaledValueTerms = {
+    asset: "SSV",
+    rawValue: totalFeeRate,
+    numerator: validatorCount,
+    divisor: 1n,
+    scaledValue,
+  };
 
   return {
-    value: burnRate.scaledValue,
-    terms: {
-      operatorFeeSum,
-      networkFee: daoValues.networkFee,
-      totalFeeRate,
-      burnRate,
-    },
+    value: scaledValue,
+    terms: { operatorFeeSum, networkFee: daoValues.networkFee, totalFeeRate, burnRate },
   };
 }
 
@@ -227,13 +332,19 @@ export function deriveLiquidationCollateral(
 
 export function deriveLiquidatableStatus(
   active: boolean,
+  validatorCount: number,
   currentBalance: bigint,
   liquidationCollateral: bigint,
 ): { value: boolean; terms: LiquidatableTerms } {
+  // The contract `isLiquidatable` short-circuits to `false` whenever
+  // `cluster.validatorCount == 0`, regardless of balance. Match that here so
+  // we don't flag drained-but-empty clusters as liquidatable.
+  const value = active && validatorCount > 0 && currentBalance < liquidationCollateral;
   return {
-    value: active && currentBalance < liquidationCollateral,
+    value,
     terms: {
       active,
+      validatorCount,
       currentBalance,
       liquidationCollateral,
     },
@@ -249,7 +360,12 @@ export function deriveClusterAccounting(
   const currentBalance = deriveCurrentClusterBalance(cluster, operators, daoValues, currentBlock);
   const burnRate = deriveClusterBurnRate(cluster, operators, daoValues);
   const liquidationCollateral = deriveLiquidationCollateral(burnRate.value, daoValues);
-  const liquidatable = deriveLiquidatableStatus(cluster.active, currentBalance.value, liquidationCollateral.value);
+  const liquidatable = deriveLiquidatableStatus(
+    cluster.active,
+    cluster.validatorCount,
+    currentBalance.value,
+    liquidationCollateral.value,
+  );
 
   return {
     outputs: {

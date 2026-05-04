@@ -424,7 +424,12 @@ async function buildPinnedDerivedChecks(args: {
   const derivedBalance = deriveCurrentClusterBalance({ ...cluster, feeAsset: asset }, operators, daoValues, verificationBlockNumber);
   const derivedBurnRate = deriveClusterBurnRate({ ...cluster, feeAsset: asset }, operators, daoValues);
   const derivedLiquidationCollateral = deriveLiquidationCollateral(derivedBurnRate.value, daoValues);
-  const expectedLiquidatable = deriveLiquidatableStatus(cluster.active, derivedBalance.value, derivedLiquidationCollateral.value);
+  const expectedLiquidatable = deriveLiquidatableStatus(
+    cluster.active,
+    cluster.validatorCount,
+    derivedBalance.value,
+    derivedLiquidationCollateral.value,
+  );
   const accountingDebug: ClusterAccountingDebug = {
     selectedAsset: asset,
     localInputs: {
@@ -587,15 +592,18 @@ function formatFeeAsset(value: string | null): string {
 function clusterChecksForAsset(
   asset: FeeAsset | null,
   emptyCluster = false,
+  inactiveCluster = false,
 ): ClusterIdentityCheckResult["name"][] {
-  const checkNames: ClusterIdentityCheckResult["name"][] = [
-    "assetType",
-    "daoData",
-    "currentBalance",
-    "burnRate",
-    "liquidationCollateral",
-    "liquidatable",
-  ];
+  const checkNames: ClusterIdentityCheckResult["name"][] = inactiveCluster
+    ? ["assetType", "daoData"]
+    : [
+        "assetType",
+        "daoData",
+        "currentBalance",
+        "burnRate",
+        "liquidationCollateral",
+        "liquidatable",
+      ];
 
   if (!emptyCluster) {
     checkNames.splice(2, 0, "operatorData");
@@ -613,8 +621,9 @@ function createBlockedClusterChecks(
   detail: string,
   blockedBy: ClusterIdentityCheckResult["name"],
   emptyCluster = false,
+  inactiveCluster = false,
 ): ClusterIdentityCheckResult[] {
-  return clusterChecksForAsset(asset, emptyCluster)
+  return clusterChecksForAsset(asset, emptyCluster, inactiveCluster)
     .map((name) => createBlockedCheck(name, detail, blockedBy));
 }
 
@@ -646,6 +655,10 @@ function createBlockedDerivedChecks(
 
 function isEmptyCluster(cluster: Pick<NormalizedCluster, "validatorCount">): boolean {
   return cluster.validatorCount === 0;
+}
+
+function isInactiveCluster(cluster: Pick<NormalizedCluster, "active">): boolean {
+  return cluster.active === false;
 }
 
 function isPresentCheck(check: ClusterIdentityCheckResult | null): check is ClusterIdentityCheckResult {
@@ -874,8 +887,9 @@ function buildBlockedClusterResult(
   clusterStateCheck: ClusterIdentityCheckResult,
   asset: FeeAsset | null,
   emptyCluster = false,
+  inactiveCluster = false,
 ): VerifyClusterResult {
-  const blockedChecks = clusterChecksForAsset(asset, emptyCluster)
+  const blockedChecks = clusterChecksForAsset(asset, emptyCluster, inactiveCluster)
     .map((name) => createBlockedCheck(name, `Skipped downstream cluster verification because clusterState was ${clusterStateCheck.status.toUpperCase()}`, "clusterState"));
   const checks = [clusterStateCheck, ...blockedChecks];
 
@@ -999,6 +1013,7 @@ async function runClusterIdentityVerification(
   const freshness = createFreshness(BigInt(subgraphAccounting.indexedBlockNumber), chainHeadBlock);
   const clusterAsset = isFeeAsset(cluster.feeAsset) ? cluster.feeAsset : null;
   const emptyCluster = isEmptyCluster(cluster);
+  const inactiveCluster = isInactiveCluster(cluster);
   const fetchedClusterId = (() => {
     try {
       return parseClusterId(subgraphAccounting.cluster.id);
@@ -1016,6 +1031,7 @@ async function runClusterIdentityVerification(
       createFailureCheck("clusterState", subgraphAccounting.cluster.id, `Fetched cluster id was not canonical: ${fetchedClusterId.message}`),
       clusterAsset,
       emptyCluster,
+      inactiveCluster,
     );
   }
 
@@ -1033,6 +1049,7 @@ async function runClusterIdentityVerification(
       ),
       clusterAsset,
       emptyCluster,
+      inactiveCluster,
     );
   }
 
@@ -1050,6 +1067,7 @@ async function runClusterIdentityVerification(
       ),
       clusterAsset,
       emptyCluster,
+      inactiveCluster,
     );
   }
 
@@ -1067,6 +1085,7 @@ async function runClusterIdentityVerification(
       ),
       clusterAsset,
       emptyCluster,
+      inactiveCluster,
     );
   }
 
@@ -1102,6 +1121,7 @@ async function runClusterIdentityVerification(
     `Skipped downstream cluster verification because assetType was ${assetTypeCheck.status.toUpperCase()}`,
     "assetType",
     emptyCluster,
+    inactiveCluster,
   );
 
   const verification = assetTypeCheck.status !== "pass"
@@ -1139,6 +1159,7 @@ async function runClusterIdentityVerification(
                   `Skipped downstream cluster verification because clusterState was ${clusterStateCheck.status.toUpperCase()}`,
                   "clusterState",
                   emptyCluster,
+                  inactiveCluster,
                 ).filter((check) => check.name !== "assetType"),
               ],
               accountingDebug: emptyAccountingDebug("clusterState"),
@@ -1150,6 +1171,46 @@ async function runClusterIdentityVerification(
           const operatorDataCheck = emptyCluster
             ? null
             : validateSelectedOperatorData(validationAsset, subgraphAccounting.operators, cluster.operatorIds);
+
+          if (inactiveCluster) {
+            const effectiveBalanceCheck = validationAsset === "ETH" && !emptyCluster
+              ? cluster.effectiveBalance !== null
+                && cluster.effectiveBalance > 0n
+                ? createPassCheck(
+                    "effectiveBalance",
+                    cluster.effectiveBalance.toString(),
+                    `ETH effective balance was present and produced scale ${(cluster.effectiveBalance / 32n).toString()}`,
+                  )
+                : createFailureCheck(
+                    "effectiveBalance",
+                    cluster.effectiveBalance?.toString() ?? "missing",
+                    "ETH effective balance must be present and greater than zero",
+                  )
+              : null;
+            const checks = [
+              ...baseChecks,
+              daoDataCheck,
+              ...[operatorDataCheck, effectiveBalanceCheck].filter(isPresentCheck),
+              createSubgraphLagCheck(freshness),
+            ];
+
+            return {
+              checks,
+              accountingDebug: summarizeAccountingDebug(checks, {
+                selectedAsset: validationAsset,
+                localInputs: {
+                  cluster: {
+                    validatorCount: cluster.validatorCount,
+                    networkFeeIndex: cluster.networkFeeIndex,
+                    index: cluster.index,
+                    active: cluster.active,
+                    balance: cluster.balance,
+                    effectiveBalance: cluster.effectiveBalance,
+                  },
+                },
+              }),
+            };
+          }
           const blockedInputChecks = [daoDataCheck, operatorDataCheck]
             .filter(isPresentCheck)
             .filter((check) => check.status !== "pass");
