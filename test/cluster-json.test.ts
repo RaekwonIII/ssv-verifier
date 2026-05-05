@@ -20,7 +20,6 @@ function buildResult(overrides: Partial<VerifyClusterResult> = {}): VerifyCluste
   return {
     network: "mainnet",
     clusterId: "0x000000000000000000000000000000000000aaaa-1-2-3-4",
-    subgraphSource: "primary",
     freshness: { indexedBlockNumber: 100, chainHeadBlockNumber: 100, lagBlocks: 0, status: "fresh" },
     status: "pass",
     checks: [
@@ -37,7 +36,6 @@ describe("toPublicVerifyClusterJson", () => {
     expect(Object.keys(json)).toEqual([
       "network",
       "clusterId",
-      "subgraphSource",
       "verificationBlock",
       "status",
       "checks",

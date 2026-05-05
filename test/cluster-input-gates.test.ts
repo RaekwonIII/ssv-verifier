@@ -8,6 +8,8 @@ const baseEnv = {
   HOODI_RPC_URL: "https://hoodi.example",
   MAINNET_VIEWS_ADDRESS: "0x0000000000000000000000000000000000000001",
   HOODI_VIEWS_ADDRESS: "0x0000000000000000000000000000000000000002",
+  MAINNET_SUBGRAPH_URL: "https://api.studio.thegraph.com/query/71118/ssv-network-ethereum/version/latest",
+  HOODI_SUBGRAPH_URL: "https://api.studio.thegraph.com/query/71118/ssv-network-hoodi/version/latest",
 };
 
 const clusterId = "0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-7-523";

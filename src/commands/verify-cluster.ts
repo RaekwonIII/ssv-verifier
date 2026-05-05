@@ -62,7 +62,6 @@ export interface ClusterIdentityCheckResult {
 export interface VerifyClusterResult {
   network: SingleNetwork;
   clusterId: string;
-  subgraphSource: "primary" | "fallback";
   freshness: SubgraphFreshness;
   status: CheckStatus;
   checks: ClusterIdentityCheckResult[];
@@ -882,7 +881,6 @@ function validateSelectedDaoData(
 function buildBlockedClusterResult(
   network: SingleNetwork,
   clusterId: string,
-  subgraphSource: "primary" | "fallback",
   freshness: SubgraphFreshness,
   clusterStateCheck: ClusterIdentityCheckResult,
   asset: FeeAsset | null,
@@ -896,7 +894,6 @@ function buildBlockedClusterResult(
   return {
     network,
     clusterId,
-    subgraphSource,
     freshness,
     status: summarizeStatus(checks),
     checks,
@@ -956,7 +953,6 @@ async function runClusterIdentityVerification(
     return buildBlockedClusterResult(
       network,
       clusterId,
-      "primary",
       freshness,
       createFailureCheck("clusterState", clusterId, `Cluster ID could not be parsed into a usable cluster state: ${parsedClusterId.message}`),
       null,
@@ -965,8 +961,7 @@ async function runClusterIdentityVerification(
 
   spinner?.update(`Fetching subgraph snapshot for cluster ${clusterId}…`);
   const subgraphAccounting = await fetchPinnedSubgraphClusterSnapshot(
-    networkConfig.subgraphPrimaryUrl,
-    networkConfig.subgraphFallbackUrl,
+    networkConfig.subgraphUrl,
     clusterId,
     networkConfig.daoAddress,
     fetchFn,
@@ -979,7 +974,6 @@ async function runClusterIdentityVerification(
     return buildBlockedClusterResult(
       network,
       clusterId,
-      subgraphAccounting.source,
       freshness,
       createInconclusiveCheck(
         "clusterState",
@@ -997,7 +991,6 @@ async function runClusterIdentityVerification(
     return buildBlockedClusterResult(
       network,
       clusterId,
-      subgraphAccounting.source,
       freshness,
       createFailureCheck(
         "clusterState",
@@ -1026,7 +1019,6 @@ async function runClusterIdentityVerification(
     return buildBlockedClusterResult(
       network,
       clusterId,
-      subgraphAccounting.source,
       freshness,
       createFailureCheck("clusterState", subgraphAccounting.cluster.id, `Fetched cluster id was not canonical: ${fetchedClusterId.message}`),
       clusterAsset,
@@ -1039,7 +1031,6 @@ async function runClusterIdentityVerification(
     return buildBlockedClusterResult(
       network,
       subgraphAccounting.cluster.id,
-      subgraphAccounting.source,
       freshness,
       createFailureCheck(
         "clusterState",
@@ -1057,7 +1048,6 @@ async function runClusterIdentityVerification(
     return buildBlockedClusterResult(
       network,
       cluster.id,
-      subgraphAccounting.source,
       freshness,
       createFailureCheck(
         "clusterState",
@@ -1075,7 +1065,6 @@ async function runClusterIdentityVerification(
     return buildBlockedClusterResult(
       network,
       cluster.id,
-      subgraphAccounting.source,
       freshness,
       createFailureCheck(
         "clusterState",
@@ -1366,7 +1355,6 @@ async function runClusterIdentityVerification(
   return {
     network,
     clusterId: cluster.id,
-    subgraphSource: subgraphAccounting.source,
     freshness,
     status: summarizeStatus(classifiedChecks),
     checks: classifiedChecks,
@@ -1390,7 +1378,6 @@ export function renderVerifyClusterSummary(result: VerifyClusterResult): string 
     `verify-cluster ${result.status.toUpperCase()}`,
     `network: ${result.network}`,
     `cluster: ${result.clusterId}`,
-    `subgraph source: ${result.subgraphSource}`,
     `verification block: ${result.freshness.indexedBlockNumber}`,
     `chain head: ${result.freshness.chainHeadBlockNumber}`,
     `subgraph lag: ${result.freshness.lagBlocks} block(s) (${result.freshness.status})`,
@@ -1432,7 +1419,6 @@ export function toPublicVerifyClusterJson(result: VerifyClusterResult): Record<s
   return {
     network: result.network,
     clusterId: result.clusterId,
-    subgraphSource: result.subgraphSource,
     verificationBlock: result.freshness.indexedBlockNumber,
     status: result.status,
     checks: result.checks.map((check) => ({

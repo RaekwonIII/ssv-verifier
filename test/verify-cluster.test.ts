@@ -13,6 +13,8 @@ const baseEnv = {
   HOODI_RPC_URL: "https://hoodi.example",
   MAINNET_VIEWS_ADDRESS: "0x0000000000000000000000000000000000000001",
   HOODI_VIEWS_ADDRESS: "0x0000000000000000000000000000000000000002",
+  MAINNET_SUBGRAPH_URL: "https://api.studio.thegraph.com/query/71118/ssv-network-ethereum/version/latest",
+  HOODI_SUBGRAPH_URL: "https://api.studio.thegraph.com/query/71118/ssv-network-hoodi/version/latest",
 };
 
 const clusterId = "0xe8c927a1fa792eddefe23fda643a62e03f999830-5-6-7-523";
@@ -397,11 +399,10 @@ describe("verify-cluster command integration", () => {
       status: "pass",
     });
     const textSummary = renderVerifyClusterSummary(result);
-    expect(textSummary.split("\n").slice(0, 8)).toEqual([
+    expect(textSummary.split("\n").slice(0, 7)).toEqual([
       "verify-cluster PASS",
       "network: hoodi",
       `cluster: ${clusterId}`,
-      "subgraph source: primary",
       "verification block: 20",
       "chain head: 20",
       "subgraph lag: 0 block(s) (fresh)",

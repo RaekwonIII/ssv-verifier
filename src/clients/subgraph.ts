@@ -114,7 +114,6 @@ interface GraphqlResponse<T> {
 
 export interface SubgraphMetaResult {
   indexedBlockNumber: number;
-  source: "primary" | "fallback";
 }
 
 export interface SubgraphClusterRecord {
@@ -134,7 +133,6 @@ export interface SubgraphClusterRecord {
 
 export interface SubgraphClusterResult {
   cluster: SubgraphClusterRecord;
-  source: "primary" | "fallback";
 }
 
 export interface SubgraphOperatorRecord {
@@ -173,7 +171,6 @@ export interface SubgraphClusterAccountingResult {
   operators: SubgraphOperatorRecord[];
   daoValues: SubgraphDaoValuesRecord;
   indexedBlockNumber: number;
-  source: "primary" | "fallback";
 }
 
 interface SubgraphClusterSnapshotPayload {
@@ -191,20 +188,17 @@ export interface SubgraphClusterSnapshotSuccessResult {
   operators: SubgraphOperatorRecord[];
   daoValues: SubgraphDaoValuesRecord | null;
   indexedBlockNumber: number;
-  source: "primary" | "fallback";
 }
 
 export interface SubgraphClusterSnapshotNotFoundResult {
   status: "not-found";
   clusterId: string;
   indexedBlockNumber: number;
-  source: "primary" | "fallback";
 }
 
 export interface SubgraphClusterSnapshotQueryFailedResult {
   status: "query-failed";
   detail: string;
-  source: "primary" | "fallback";
 }
 
 export type SubgraphClusterSnapshotResult =
@@ -214,17 +208,14 @@ export type SubgraphClusterSnapshotResult =
 
 export interface SubgraphClusterIdsResult {
   clusterIds: string[];
-  source: "primary" | "fallback";
 }
 
 export interface SubgraphOperatorDetailsListResult {
   operators: SubgraphOperatorDetailsRecord[];
-  source: "primary" | "fallback";
 }
 
 export interface SubgraphOperatorDetailsResult {
   operator: SubgraphOperatorDetailsRecord;
-  source: "primary" | "fallback";
 }
 
 export interface SubgraphDaoValuesResult {
@@ -237,7 +228,6 @@ export interface SubgraphDaoValuesResult {
     | "liquidationThresholdSSV"
     | "minimumLiquidationCollateralSSV"
   >;
-  source: "primary" | "fallback";
 }
 
 async function postGraphql<T>(url: string, query: string, variables: Record<string, unknown>, fetchFn: typeof fetch): Promise<T> {
@@ -266,10 +256,9 @@ async function postGraphql<T>(url: string, query: string, variables: Record<stri
   return payload.data;
 }
 
-async function fetchSubgraphMetaOnce(
+export async function fetchSubgraphMeta(
   url: string,
-  source: "primary" | "fallback",
-  fetchFn: typeof fetch,
+  fetchFn: typeof fetch = fetch,
 ): Promise<SubgraphMetaResult> {
   const payload = await postGraphql<SubgraphMetaResponse["data"]>(url, metaQuery, {}, fetchFn);
   const blockNumber = payload?._meta?.block?.number;
@@ -280,31 +269,13 @@ async function fetchSubgraphMetaOnce(
 
   return {
     indexedBlockNumber: blockNumber,
-    source,
   };
 }
 
-export async function fetchSubgraphMeta(
-  primaryUrl: string,
-  fallbackUrl: string | undefined,
-  fetchFn: typeof fetch = fetch,
-): Promise<SubgraphMetaResult> {
-  try {
-    return await fetchSubgraphMetaOnce(primaryUrl, "primary", fetchFn);
-  } catch (primaryError) {
-    if (!fallbackUrl) {
-      throw primaryError;
-    }
-
-    return fetchSubgraphMetaOnce(fallbackUrl, "fallback", fetchFn);
-  }
-}
-
-async function fetchSubgraphClusterOnce(
+export async function fetchSubgraphCluster(
   url: string,
   clusterId: string,
-  source: "primary" | "fallback",
-  fetchFn: typeof fetch,
+  fetchFn: typeof fetch = fetch,
 ): Promise<SubgraphClusterResult> {
   const payload = await postGraphql<{ cluster: SubgraphClusterRecord | null }>(
     url,
@@ -319,75 +290,14 @@ async function fetchSubgraphClusterOnce(
 
   return {
     cluster: payload.cluster,
-    source,
   };
 }
 
-export async function fetchSubgraphCluster(
-  primaryUrl: string,
-  fallbackUrl: string | undefined,
+export async function fetchPinnedSubgraphClusterSnapshot(
+  url: string,
   clusterId: string,
+  daoAddress: string,
   fetchFn: typeof fetch = fetch,
-): Promise<SubgraphClusterResult> {
-  try {
-    return await fetchSubgraphClusterOnce(primaryUrl, clusterId, "primary", fetchFn);
-  } catch (primaryError) {
-    if (!fallbackUrl) {
-      throw primaryError;
-    }
-
-    return fetchSubgraphClusterOnce(fallbackUrl, clusterId, "fallback", fetchFn);
-  }
-}
-
-async function fetchSubgraphClusterAccountingOnce(
-  url: string,
-  clusterId: string,
-  daoAddress: string,
-  source: "primary" | "fallback",
-  fetchFn: typeof fetch,
-): Promise<SubgraphClusterAccountingResult> {
-  const [metaResult, clusterResult] = await Promise.all([
-    fetchSubgraphMetaOnce(url, source, fetchFn),
-    fetchSubgraphClusterOnce(url, clusterId, source, fetchFn),
-  ]);
-  const payload = await postGraphql<{
-    operators?: SubgraphOperatorRecord[];
-    daovalues?: SubgraphDaoValuesRecord | null;
-  }>(
-    url,
-    clusterAccountingQuery,
-    { operatorIds: clusterResult.cluster.operatorIds, daoId: daoAddress },
-    fetchFn,
-  );
-  const operators = payload.operators ?? [];
-  const missingOperatorIds = clusterResult.cluster.operatorIds.filter(
-    (operatorId) => !operators.some((operator) => operator.id === operatorId),
-  );
-
-  if (missingOperatorIds.length > 0) {
-    throw new Error(`Subgraph response was missing operators: ${missingOperatorIds.join(", ")}`);
-  }
-
-  if (!payload.daovalues) {
-    throw new Error(`Subgraph response did not include DAO values for ${daoAddress}`);
-  }
-
-  return {
-    cluster: clusterResult.cluster,
-    operators,
-    daoValues: payload.daovalues,
-    indexedBlockNumber: metaResult.indexedBlockNumber,
-    source,
-  };
-}
-
-async function fetchPinnedClusterSnapshotOnce(
-  url: string,
-  clusterId: string,
-  daoAddress: string,
-  source: "primary" | "fallback",
-  fetchFn: typeof fetch,
 ): Promise<SubgraphClusterSnapshotResult> {
   try {
     const payload = await postGraphql<SubgraphClusterSnapshotPayload>(
@@ -402,7 +312,6 @@ async function fetchPinnedClusterSnapshotOnce(
       return {
         status: "query-failed",
         detail: "Subgraph response did not include _meta.block.number",
-        source,
       };
     }
 
@@ -420,7 +329,6 @@ async function fetchPinnedClusterSnapshotOnce(
         status: "not-found",
         clusterId,
         indexedBlockNumber,
-        source,
       };
     }
 
@@ -440,41 +348,22 @@ async function fetchPinnedClusterSnapshotOnce(
       operators: accountingPayload.operators ?? [],
       daoValues: accountingPayload.daovalues ?? null,
       indexedBlockNumber,
-      source,
     };
   } catch (error) {
     return {
       status: "query-failed",
       detail: error instanceof Error ? error.message : String(error),
-      source,
     };
   }
 }
 
-export async function fetchPinnedSubgraphClusterSnapshot(
-  primaryUrl: string,
-  fallbackUrl: string | undefined,
-  clusterId: string,
-  daoAddress: string,
-  fetchFn: typeof fetch = fetch,
-): Promise<SubgraphClusterSnapshotResult> {
-  const primaryResult = await fetchPinnedClusterSnapshotOnce(primaryUrl, clusterId, daoAddress, "primary", fetchFn);
-
-  if (primaryResult.status !== "query-failed" || !fallbackUrl) {
-    return primaryResult;
-  }
-
-  return fetchPinnedClusterSnapshotOnce(fallbackUrl, clusterId, daoAddress, "fallback", fetchFn);
-}
-
 export async function fetchSubgraphClusterAccounting(
-  primaryUrl: string,
-  fallbackUrl: string | undefined,
+  url: string,
   clusterId: string,
   daoAddress: string,
   fetchFn: typeof fetch = fetch,
 ): Promise<SubgraphClusterAccountingResult> {
-  const result = await fetchPinnedSubgraphClusterSnapshot(primaryUrl, fallbackUrl, clusterId, daoAddress, fetchFn);
+  const result = await fetchPinnedSubgraphClusterSnapshot(url, clusterId, daoAddress, fetchFn);
 
   if (result.status === "query-failed") {
     throw new Error(result.detail);
@@ -501,15 +390,13 @@ export async function fetchSubgraphClusterAccounting(
     operators: result.operators,
     daoValues: result.daoValues,
     indexedBlockNumber: result.indexedBlockNumber,
-    source: result.source,
   };
 }
 
-async function fetchSubgraphOperatorOnce(
+export async function fetchSubgraphOperator(
   url: string,
   operatorId: string,
-  source: "primary" | "fallback",
-  fetchFn: typeof fetch,
+  fetchFn: typeof fetch = fetch,
 ): Promise<SubgraphOperatorDetailsResult> {
   const payload = await postGraphql<{ operator: SubgraphOperatorDetailsRecord | null }>(
     url,
@@ -524,32 +411,13 @@ async function fetchSubgraphOperatorOnce(
 
   return {
     operator: payload.operator,
-    source,
   };
 }
 
-export async function fetchSubgraphOperator(
-  primaryUrl: string,
-  fallbackUrl: string | undefined,
-  operatorId: string,
-  fetchFn: typeof fetch = fetch,
-): Promise<SubgraphOperatorDetailsResult> {
-  try {
-    return await fetchSubgraphOperatorOnce(primaryUrl, operatorId, "primary", fetchFn);
-  } catch (primaryError) {
-    if (!fallbackUrl) {
-      throw primaryError;
-    }
-
-    return fetchSubgraphOperatorOnce(fallbackUrl, operatorId, "fallback", fetchFn);
-  }
-}
-
-async function fetchSubgraphDaoValuesOnce(
+export async function fetchSubgraphDaoValues(
   url: string,
   daoAddress: string,
-  source: "primary" | "fallback",
-  fetchFn: typeof fetch,
+  fetchFn: typeof fetch = fetch,
 ): Promise<SubgraphDaoValuesResult> {
   const payload = await postGraphql<{ daovalues?: SubgraphDaoValuesResult["daoValues"] | null }>(
     url,
@@ -564,31 +432,12 @@ async function fetchSubgraphDaoValuesOnce(
 
   return {
     daoValues: payload.daovalues,
-    source,
   };
 }
 
-export async function fetchSubgraphDaoValues(
-  primaryUrl: string,
-  fallbackUrl: string | undefined,
-  daoAddress: string,
-  fetchFn: typeof fetch = fetch,
-): Promise<SubgraphDaoValuesResult> {
-  try {
-    return await fetchSubgraphDaoValuesOnce(primaryUrl, daoAddress, "primary", fetchFn);
-  } catch (primaryError) {
-    if (!fallbackUrl) {
-      throw primaryError;
-    }
-
-    return fetchSubgraphDaoValuesOnce(fallbackUrl, daoAddress, "fallback", fetchFn);
-  }
-}
-
-async function fetchAllSubgraphClusterIdsOnce(
+export async function fetchAllSubgraphClusterIds(
   url: string,
-  source: "primary" | "fallback",
-  fetchFn: typeof fetch,
+  fetchFn: typeof fetch = fetch,
 ): Promise<SubgraphClusterIdsResult> {
   const clusterIds: string[] = [];
   let skip = 0;
@@ -608,7 +457,6 @@ async function fetchAllSubgraphClusterIdsOnce(
     if (page.length < first) {
       return {
         clusterIds,
-        source,
       };
     }
 
@@ -616,26 +464,9 @@ async function fetchAllSubgraphClusterIdsOnce(
   }
 }
 
-export async function fetchAllSubgraphClusterIds(
-  primaryUrl: string,
-  fallbackUrl: string | undefined,
-  fetchFn: typeof fetch = fetch,
-): Promise<SubgraphClusterIdsResult> {
-  try {
-    return await fetchAllSubgraphClusterIdsOnce(primaryUrl, "primary", fetchFn);
-  } catch (primaryError) {
-    if (!fallbackUrl) {
-      throw primaryError;
-    }
-
-    return fetchAllSubgraphClusterIdsOnce(fallbackUrl, "fallback", fetchFn);
-  }
-}
-
-async function fetchAllSubgraphOperatorDetailsOnce(
+export async function fetchAllSubgraphOperatorDetails(
   url: string,
-  source: "primary" | "fallback",
-  fetchFn: typeof fetch,
+  fetchFn: typeof fetch = fetch,
 ): Promise<SubgraphOperatorDetailsListResult> {
   const operators: SubgraphOperatorDetailsRecord[] = [];
   let skip = 0;
@@ -655,26 +486,9 @@ async function fetchAllSubgraphOperatorDetailsOnce(
     if (page.length < first) {
       return {
         operators,
-        source,
       };
     }
 
     skip += page.length;
-  }
-}
-
-export async function fetchAllSubgraphOperatorDetails(
-  primaryUrl: string,
-  fallbackUrl: string | undefined,
-  fetchFn: typeof fetch = fetch,
-): Promise<SubgraphOperatorDetailsListResult> {
-  try {
-    return await fetchAllSubgraphOperatorDetailsOnce(primaryUrl, "primary", fetchFn);
-  } catch (primaryError) {
-    if (!fallbackUrl) {
-      throw primaryError;
-    }
-
-    return fetchAllSubgraphOperatorDetailsOnce(fallbackUrl, "fallback", fetchFn);
   }
 }

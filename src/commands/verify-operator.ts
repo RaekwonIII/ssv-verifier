@@ -17,7 +17,6 @@ export interface OperatorCheckResult {
 export interface VerifyOperatorResult {
   network: SingleNetwork;
   operatorId: string;
-  subgraphSource: "primary" | "fallback";
   status: CheckStatus;
   checks: OperatorCheckResult[];
 }
@@ -62,7 +61,6 @@ export function compareOperatorAgainstViews(
   operatorId: string,
   subgraphOperator: SubgraphOperatorDetailsRecord,
   viewsDetails: ViewsOperatorDetails,
-  subgraphSource: "primary" | "fallback",
 ): VerifyOperatorResult {
   const activeSubgraphValue = subgraphOperator.removed === null
     ? null
@@ -77,7 +75,6 @@ export function compareOperatorAgainstViews(
   return {
     network,
     operatorId,
-    subgraphSource,
     status: summarizeStatus(checks),
     checks,
   };
@@ -99,8 +96,7 @@ export async function verifyOperatorState(
   const spinner = reporter?.spinner(`Fetching operator ${operatorId} from subgraph…`);
   try {
     const subgraphOperator = await fetchSubgraphOperator(
-      networkConfig.subgraphPrimaryUrl,
-      networkConfig.subgraphFallbackUrl,
+      networkConfig.subgraphUrl,
       operatorId,
       fetchFn,
     );
@@ -116,7 +112,6 @@ export async function verifyOperatorState(
       operatorId,
       subgraphOperator.operator,
       viewsDetails,
-      subgraphOperator.source,
     );
     spinner?.succeed(`Verified operator ${operatorId} on ${network}`);
     return result;
@@ -131,7 +126,6 @@ export function renderVerifyOperatorSummary(result: VerifyOperatorResult): strin
     `verify-operator ${result.status.toUpperCase()}`,
     `network: ${result.network}`,
     `operator: ${result.operatorId}`,
-    `subgraph source: ${result.subgraphSource}`,
   ];
 
   for (const check of result.checks) {

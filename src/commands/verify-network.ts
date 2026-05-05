@@ -33,7 +33,6 @@ export interface VerifyNetworkAssetResult {
 
 export interface VerifyNetworkResult {
   network: SingleNetwork;
-  subgraphSource: "primary" | "fallback";
   status: CheckStatus;
   assetResults: VerifyNetworkAssetResult[];
   checks: VerifyNetworkCheckResult[];
@@ -153,8 +152,7 @@ async function verifySingleNetwork(
   const networkConfig = config.networks[network];
   const rpcClient = createNetworkRpcPool(config, networkConfig, fetchFn);
   const subgraphDaoValues = await fetchDaoValues(
-    networkConfig.subgraphPrimaryUrl,
-    networkConfig.subgraphFallbackUrl,
+    networkConfig.subgraphUrl,
     networkConfig.daoAddress,
     fetchFn,
   );
@@ -167,7 +165,6 @@ async function verifySingleNetwork(
 
   return {
     network,
-    subgraphSource: subgraphDaoValues.source,
     status: summarizeStatuses(assetResults.map((assetResult) => assetResult.status)),
     assetResults,
     checks: assetResults.flatMap((assetResult) => assetResult.checks),
@@ -212,7 +209,7 @@ export function renderVerifyNetworkSummary(result: VerifyNetworkRunResult): stri
   ];
 
   for (const networkResult of result.networkResults) {
-    lines.push(`${networkResult.network}: ${networkResult.status.toUpperCase()} (source=${networkResult.subgraphSource})`);
+    lines.push(`${networkResult.network}: ${networkResult.status.toUpperCase()}`);
 
     for (const assetResult of networkResult.assetResults) {
       lines.push(`- ${assetResult.asset}: ${assetResult.status.toUpperCase()}`);

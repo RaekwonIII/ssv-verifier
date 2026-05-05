@@ -8,7 +8,6 @@
   "asset": "ETH",
   "network": "mainnet",
   "clusterId": "0x0000000000000000000000000000000000000bbb-5-6-7-8",
-  "subgraphSource": "primary",
   "verificationBlock": 19500000,
   "status": "pass",
   "checks": [

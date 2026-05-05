@@ -45,7 +45,6 @@ interface ExpectedSnapshot {
   asset: ClusterFixtureSeed["asset"];
   network: "mainnet";
   clusterId: string;
-  subgraphSource: "primary";
   verificationBlock: number;
   status: ClusterFixtureSeed["expectedStatus"];
   checks: Array<{
@@ -163,7 +162,6 @@ function buildExpectedSnapshot(seed: ClusterFixtureSeed): ExpectedSnapshot {
     asset: seed.asset,
     network: "mainnet",
     clusterId: seed.cluster.id,
-    subgraphSource: "primary",
     verificationBlock: seed.block,
     status: seed.expectedStatus,
     checks: [

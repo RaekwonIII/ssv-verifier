@@ -1,7 +1,7 @@
 import { config as loadDotenv } from "dotenv";
 import { z } from "zod";
 
-import { getDaoAddress, getFallbackSubgraphUrl, getPrimarySubgraphUrl, resolveNetworks, type NetworkTarget } from "./networks.js";
+import { getDaoAddress, resolveNetworks, type NetworkTarget } from "./networks.js";
 
 loadDotenv();
 
@@ -54,7 +54,8 @@ const rawEnvSchema = z.object({
   HOODI_RPC_URL: rpcUrlsSchema,
   MAINNET_VIEWS_ADDRESS: addressSchema,
   HOODI_VIEWS_ADDRESS: addressSchema,
-  THEGRAPH_API_KEY: z.string().optional(),
+  MAINNET_SUBGRAPH_URL: z.string().url(),
+  HOODI_SUBGRAPH_URL: z.string().url(),
   RPC_MAX_INFLIGHT_PER_ENDPOINT: rpcMaxInflightSchema,
 });
 
@@ -62,8 +63,7 @@ export interface NetworkRuntimeConfig {
   rpcUrls: string[];
   viewsAddress: string;
   daoAddress: string;
-  subgraphPrimaryUrl: string;
-  subgraphFallbackUrl?: string;
+  subgraphUrl: string;
 }
 
 export interface RuntimeConfig {
@@ -71,14 +71,10 @@ export interface RuntimeConfig {
   networks: Record<"hoodi" | "mainnet", NetworkRuntimeConfig>;
   activeNetworks: ReturnType<typeof resolveNetworks>;
   rpcMaxInflightPerEndpoint: number;
-  theGraphApiKey?: string;
 }
 
 export function loadRuntimeConfig(selectedNetwork: NetworkTarget, env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
   const parsedEnv = rawEnvSchema.parse(env);
-  const theGraphApiKey = parsedEnv.THEGRAPH_API_KEY || undefined;
-  const hoodiFallbackUrl = getFallbackSubgraphUrl("hoodi", theGraphApiKey);
-  const mainnetFallbackUrl = getFallbackSubgraphUrl("mainnet", theGraphApiKey);
 
   return {
     selectedNetwork,
@@ -87,19 +83,16 @@ export function loadRuntimeConfig(selectedNetwork: NetworkTarget, env: NodeJS.Pr
         rpcUrls: parsedEnv.HOODI_RPC_URL,
         viewsAddress: parsedEnv.HOODI_VIEWS_ADDRESS.toLowerCase(),
         daoAddress: getDaoAddress("hoodi"),
-        subgraphPrimaryUrl: getPrimarySubgraphUrl("hoodi"),
-        ...(hoodiFallbackUrl ? { subgraphFallbackUrl: hoodiFallbackUrl } : {}),
+        subgraphUrl: parsedEnv.HOODI_SUBGRAPH_URL,
       },
       mainnet: {
         rpcUrls: parsedEnv.MAINNET_RPC_URL,
         viewsAddress: parsedEnv.MAINNET_VIEWS_ADDRESS.toLowerCase(),
         daoAddress: getDaoAddress("mainnet"),
-        subgraphPrimaryUrl: getPrimarySubgraphUrl("mainnet"),
-        ...(mainnetFallbackUrl ? { subgraphFallbackUrl: mainnetFallbackUrl } : {}),
+        subgraphUrl: parsedEnv.MAINNET_SUBGRAPH_URL,
       },
     },
     activeNetworks: resolveNetworks(selectedNetwork),
     rpcMaxInflightPerEndpoint: parsedEnv.RPC_MAX_INFLIGHT_PER_ENDPOINT,
-    ...(theGraphApiKey ? { theGraphApiKey } : {}),
   };
 }

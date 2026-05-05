@@ -8,6 +8,8 @@ const baseEnv = {
   HOODI_RPC_URL: "https://hoodi.example",
   MAINNET_VIEWS_ADDRESS: "0x0000000000000000000000000000000000000001",
   HOODI_VIEWS_ADDRESS: "0x0000000000000000000000000000000000000002",
+  MAINNET_SUBGRAPH_URL: "https://api.studio.thegraph.com/query/71118/ssv-network-ethereum/version/latest",
+  HOODI_SUBGRAPH_URL: "https://api.studio.thegraph.com/query/71118/ssv-network-hoodi/version/latest",
 };
 
 function makeClusterId(index: number): string {
@@ -30,12 +32,10 @@ describe("verifyAllClusters", () => {
     const result = await verifyAllClusters(config, {
       fetchClusterIds: async () => ({
         clusterIds: [makeClusterId(1), makeClusterId(2)],
-        source: "primary",
       }),
       verifyCluster: async (_runtimeConfig, clusterId) => ({
         network: "hoodi",
         clusterId,
-        subgraphSource: "primary",
         freshness: {
           indexedBlockNumber: 20,
           chainHeadBlockNumber: 20,
@@ -77,7 +77,6 @@ describe("verifyAllClusters", () => {
 
     expect(result).toMatchObject({
       network: "hoodi",
-      subgraphSource: "primary",
       status: "fail",
       summary: {
         rootCauses: expect.objectContaining({
@@ -102,14 +101,12 @@ describe("verifyAllClusters", () => {
   it("aggregates results across both networks", async () => {
     const config = loadRuntimeConfig("both", baseEnv);
     const result = await verifyClusters(config, {
-      fetchClusterIds: async (primaryUrl) => ({
-        clusterIds: primaryUrl.includes("hoodi") ? [makeClusterId(11)] : [makeClusterId(12)],
-        source: "primary",
+      fetchClusterIds: async (url) => ({
+        clusterIds: url.includes("hoodi") ? [makeClusterId(11)] : [makeClusterId(12)],
       }),
       verifyCluster: async (runtimeConfig, clusterId) => ({
         network: runtimeConfig.activeNetworks[0]!,
         clusterId,
-        subgraphSource: "primary",
         freshness: {
           indexedBlockNumber: clusterId === makeClusterId(11) ? 18 : 20,
           chainHeadBlockNumber: 20,
@@ -159,8 +156,8 @@ describe("verifyAllClusters", () => {
     expect(renderVerifyClustersSummary(result)).toContain("network selection: both");
     const text = renderVerifyClustersSummary(result);
     expect(text).toMatch(/^verify-clusters FAIL\nnetwork selection: both\nclusters: 2\nroot causes: assetType=2/);
-    expect(text).toContain("- hoodi: WARN clusters=1 clusterListingSource=primary");
-    expect(text).toContain("- mainnet: FAIL clusters=1 clusterListingSource=primary");
+    expect(text).toContain("- hoodi: WARN clusters=1");
+    expect(text).toContain("- mainnet: FAIL clusters=1");
     expect(text).toContain(`  - ${makeClusterId(11)}: WARN checks=assetType:WARN(lagging)`);
     expect(text).toContain(`  - ${makeClusterId(12)}: FAIL checks=assetType:FAIL(mismatch)`);
     expect(text).not.toContain("operational:");
@@ -178,7 +175,6 @@ describe("verifyAllClusters", () => {
           network: "hoodi",
           status: "warn",
           summary: expect.any(Object),
-          clusterListingSource: "primary",
           clusterResults: [
             {
               network: "hoodi",
@@ -202,7 +198,6 @@ describe("verifyAllClusters", () => {
           network: "mainnet",
           status: "fail",
           summary: expect.any(Object),
-          clusterListingSource: "primary",
           clusterResults: [
             {
               network: "mainnet",
@@ -229,7 +224,6 @@ describe("verifyAllClusters", () => {
       "network",
       "status",
       "summary",
-      "clusterListingSource",
       "clusterResults",
     ]);
     expect(publicJson.networkResults[0].clusterResults[0].freshness).toBeUndefined();
@@ -240,9 +234,8 @@ describe("verifyAllClusters", () => {
   it("continues through unverifiable clusters as inconclusive", async () => {
     const config = loadRuntimeConfig("both", baseEnv);
     const result = await verifyClusters(config, {
-      fetchClusterIds: async (primaryUrl) => ({
-        clusterIds: primaryUrl.includes("hoodi") ? [makeClusterId(11)] : [makeClusterId(12)],
-        source: "fallback",
+      fetchClusterIds: async (url) => ({
+        clusterIds: url.includes("hoodi") ? [makeClusterId(11)] : [makeClusterId(12)],
       }),
       verifyCluster: async (runtimeConfig, clusterId) => {
         if (clusterId === makeClusterId(12)) {
@@ -252,7 +245,6 @@ describe("verifyAllClusters", () => {
         return {
           network: runtimeConfig.activeNetworks[0]!,
           clusterId,
-          subgraphSource: "fallback",
           freshness: {
             indexedBlockNumber: 20,
             chainHeadBlockNumber: 20,
@@ -298,12 +290,10 @@ describe("verifyAllClusters", () => {
     const result = await verifyAllClusters(config, {
       fetchClusterIds: async () => ({
         clusterIds: [makeClusterId(21)],
-        source: "primary",
       }),
       verifyCluster: async (_runtimeConfig, clusterId) => ({
         network: "hoodi",
         clusterId,
-        subgraphSource: "primary",
         freshness: {
           indexedBlockNumber: 20,
           chainHeadBlockNumber: 20,
@@ -335,7 +325,7 @@ describe("verifyAllClusters", () => {
       selectedNetwork: "hoodi",
       ...result,
       networkResults: [result],
-    })).toContain("- hoodi: INCONCLUSIVE clusters=1 clusterListingSource=primary");
+    })).toContain("- hoodi: INCONCLUSIVE clusters=1");
   });
 
   it("preserves clusterState semantics for malformed discovered cluster ids", async () => {
@@ -343,7 +333,6 @@ describe("verifyAllClusters", () => {
     const result = await verifyAllClusters(config, {
       fetchClusterIds: async () => ({
         clusterIds: ["bad-cluster-id"],
-        source: "primary",
       }),
       fetchFn: async (_input, init) => {
         const body = JSON.parse(String(init?.body)) as { method?: string };
@@ -387,7 +376,6 @@ describe("verifyAllClusters", () => {
     const runPromise = verifyAllClusters(config, {
       fetchClusterIds: async () => ({
         clusterIds: ids,
-        source: "primary",
       }),
       verifyCluster: async (_runtimeConfig, id) => {
         const index = ids.indexOf(id);
@@ -400,7 +388,6 @@ describe("verifyAllClusters", () => {
         return {
           network: "hoodi",
           clusterId: id,
-          subgraphSource: "primary",
           freshness: {
             indexedBlockNumber: 20,
             chainHeadBlockNumber: 20,
@@ -450,8 +437,8 @@ describe("verifyAllClusters", () => {
     const started: string[] = [];
 
     const runPromise = verifyClusters(config, {
-      fetchClusterIds: async (primaryUrl) => {
-        const network = primaryUrl.includes("hoodi") ? "hoodi" : "mainnet";
+      fetchClusterIds: async (url) => {
+        const network = url.includes("hoodi") ? "hoodi" : "mainnet";
         started.push(`${network}:listing`);
 
         if (network === "hoodi") {
@@ -462,13 +449,11 @@ describe("verifyAllClusters", () => {
 
         return {
           clusterIds: [network === "hoodi" ? makeClusterId(101) : makeClusterId(201)],
-          source: "primary",
         };
       },
       verifyCluster: async (runtimeConfig, id) => ({
         network: runtimeConfig.activeNetworks[0]!,
         clusterId: id,
-        subgraphSource: "primary",
         freshness: {
           indexedBlockNumber: 20,
           chainHeadBlockNumber: 20,
@@ -544,7 +529,6 @@ describe("verifyAllClusters", () => {
       network: "hoodi",
       status: "inconclusive",
       summary: result.summary,
-      clusterListingSource: "primary",
       errorDetail: "listing unavailable",
       clusterResults: [],
     });
@@ -555,9 +539,9 @@ describe("verifyAllClusters", () => {
   it("renders root-cause/operational/discovery/error lines and only non-passing clusters", async () => {
     const config = loadRuntimeConfig("both", baseEnv);
     const result = await verifyClusters(config, {
-      fetchClusterIds: async (primaryUrl) => {
-        if (primaryUrl.includes("hoodi")) {
-          return { clusterIds: [makeClusterId(31), makeClusterId(32)], source: "primary" };
+      fetchClusterIds: async (url) => {
+        if (url.includes("hoodi")) {
+          return { clusterIds: [makeClusterId(31), makeClusterId(32)] };
         }
 
         throw new Error("listing unavailable");
@@ -565,7 +549,6 @@ describe("verifyAllClusters", () => {
       verifyCluster: async (runtimeConfig, id) => ({
         network: runtimeConfig.activeNetworks[0]!,
         clusterId: id,
-        subgraphSource: "primary",
         freshness: {
           indexedBlockNumber: 100,
           chainHeadBlockNumber: 110,
@@ -592,9 +575,9 @@ describe("verifyAllClusters", () => {
     ]);
     expect(text).toContain("operational: subgraphLag=2");
     expect(text).toContain("discovery: clusterListing=1");
-    expect(text).toContain("- hoodi: WARN clusters=2 clusterListingSource=primary");
+    expect(text).toContain("- hoodi: WARN clusters=2");
     expect(text).toContain("  operational: subgraphLag=2");
-    expect(text).toContain("- mainnet: INCONCLUSIVE clusters=0 clusterListingSource=primary");
+    expect(text).toContain("- mainnet: INCONCLUSIVE clusters=0");
     expect(text).toContain("  discovery: clusterListing=1");
     expect(text).toContain("  error: listing unavailable");
     expect(text).toContain(`  - ${makeClusterId(32)}: WARN checks=subgraphLag:WARN(lagging)`);

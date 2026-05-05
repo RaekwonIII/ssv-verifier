@@ -20,7 +20,6 @@ export interface VerifyOperatorBatchResult extends VerifyOperatorResult {
 export interface VerifyOperatorsResult {
   network: SingleNetwork;
   status: CheckStatus;
-  subgraphSource: "primary" | "fallback";
   totalOperators: number;
   totalChecks: number;
   passedChecks: number;
@@ -60,8 +59,7 @@ async function verifyAllOperatorsForNetwork(
   let operatorListing: Awaited<ReturnType<typeof fetchOperatorDetails>>;
   try {
     operatorListing = await fetchOperatorDetails(
-      networkConfig.subgraphPrimaryUrl,
-      networkConfig.subgraphFallbackUrl,
+      networkConfig.subgraphUrl,
       fetchFn,
     );
   } catch (error) {
@@ -81,13 +79,11 @@ async function verifyAllOperatorsForNetwork(
         operatorId,
         subgraphOperator,
         viewsDetails,
-        operatorListing.source,
       );
     } catch (error) {
       return {
         network,
         operatorId,
-        subgraphSource: operatorListing.source,
         status: "inconclusive",
         checks: [
           {
@@ -131,7 +127,6 @@ async function verifyAllOperatorsForNetwork(
   return {
     network,
     status: summarizeStatuses(operatorResults.map((result) => result.status)),
-    subgraphSource: operatorListing.source,
     totalOperators: operatorResults.length,
     totalChecks,
     passedChecks,
@@ -188,7 +183,7 @@ export function renderVerifyOperatorsSummary(result: VerifyOperatorsRunResult): 
 
   for (const networkResult of result.networkResults) {
     lines.push(
-      `- ${networkResult.network}: ${networkResult.passedChecks} passed / ${networkResult.warnedChecks} warned / ${networkResult.inconclusiveChecks} inconclusive / ${networkResult.failedChecks} failed / ${networkResult.totalChecks} total (source=${networkResult.subgraphSource})`,
+      `- ${networkResult.network}: ${networkResult.passedChecks} passed / ${networkResult.warnedChecks} warned / ${networkResult.inconclusiveChecks} inconclusive / ${networkResult.failedChecks} failed / ${networkResult.totalChecks} total`,
     );
 
     for (const operatorResult of networkResult.operatorResults.filter((entry) => entry.status !== "pass")) {

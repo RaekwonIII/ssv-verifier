@@ -78,17 +78,16 @@ async function probeViewsEndpoint(rpcUrl: string, viewsAddress: string, fetchFn:
 }
 
 async function runSubgraphCheck(
-  primaryUrl: string,
-  fallbackUrl: string | undefined,
+  url: string,
   fetchFn: typeof fetch,
 ): Promise<HealthCheckResult> {
   try {
-    const meta = await fetchSubgraphMeta(primaryUrl, fallbackUrl, fetchFn);
+    const meta = await fetchSubgraphMeta(url, fetchFn);
 
     return {
       name: "subgraph",
       status: "pass",
-      detail: `${meta.source} endpoint reachable at indexed block ${meta.indexedBlockNumber}`,
+      detail: `reachable at indexed block ${meta.indexedBlockNumber}`,
     };
   } catch (error) {
     return {
@@ -122,7 +121,7 @@ export async function runHealthCheck(
       bar?.tick();
     }
 
-    checks.push(await runSubgraphCheck(networkConfig.subgraphPrimaryUrl, networkConfig.subgraphFallbackUrl, fetchFn));
+    checks.push(await runSubgraphCheck(networkConfig.subgraphUrl, fetchFn));
     bar?.tick();
 
     for (const rpcUrl of networkConfig.rpcUrls) {

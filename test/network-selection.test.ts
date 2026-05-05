@@ -11,6 +11,8 @@ const baseEnv = {
   HOODI_RPC_URL: "https://hoodi.example",
   MAINNET_VIEWS_ADDRESS: "0x0000000000000000000000000000000000000001",
   HOODI_VIEWS_ADDRESS: "0x0000000000000000000000000000000000000002",
+  MAINNET_SUBGRAPH_URL: "https://api.studio.thegraph.com/query/71118/ssv-network-ethereum/version/latest",
+  HOODI_SUBGRAPH_URL: "https://api.studio.thegraph.com/query/71118/ssv-network-hoodi/version/latest",
 };
 
 const viewsInterface = new Interface([
@@ -127,8 +129,8 @@ describe("loadRuntimeConfig", () => {
     expect(config.activeNetworks).toEqual(["hoodi", "mainnet"]);
     expect(config.networks.hoodi.viewsAddress).toBe("0x0000000000000000000000000000000000000002");
     expect(config.networks.mainnet.viewsAddress).toBe("0x0000000000000000000000000000000000000001");
-    expect(config.networks.hoodi.subgraphPrimaryUrl).toMatch(/hoodi/);
-    expect(config.networks.mainnet.subgraphPrimaryUrl).toMatch(/ethereum/);
+    expect(config.networks.hoodi.subgraphUrl).toMatch(/hoodi/);
+    expect(config.networks.mainnet.subgraphUrl).toMatch(/ethereum/);
     expect(config.networks.hoodi.rpcUrls).toEqual(["https://hoodi.example"]);
     expect(config.rpcMaxInflightPerEndpoint).toBe(10);
   });
@@ -263,7 +265,6 @@ describe("verifyNetwork", () => {
     const config = loadRuntimeConfig("hoodi", baseEnv);
     const result = await verifyNetwork(config, {
       fetchDaoValues: async () => ({
-        source: "primary",
         daoValues: {
           networkFee: "11",
           liquidationThreshold: "12",
@@ -300,10 +301,9 @@ describe("verifyNetwork", () => {
   it("reports mixed per-surface verification results across networks", async () => {
     const config = loadRuntimeConfig("both", baseEnv);
     const result = await verifyNetwork(config, {
-      fetchDaoValues: async (primaryUrl) => {
-        if (primaryUrl.includes("hoodi")) {
+      fetchDaoValues: async (url) => {
+        if (url.includes("hoodi")) {
           return {
-            source: "primary",
             daoValues: {
               networkFee: "11",
               liquidationThreshold: "12",
@@ -316,7 +316,6 @@ describe("verifyNetwork", () => {
         }
 
         return {
-          source: "fallback",
           daoValues: {
             networkFee: "31",
             liquidationThreshold: "32",
@@ -355,7 +354,6 @@ describe("verifyNetwork", () => {
       {
         network: "hoodi",
         status: "fail",
-        subgraphSource: "primary",
         assetResults: [
           { asset: "ETH", status: "pass" },
           { asset: "SSV", status: "fail" },
@@ -364,12 +362,11 @@ describe("verifyNetwork", () => {
       {
         network: "mainnet",
         status: "pass",
-        subgraphSource: "fallback",
       },
     ]);
     expect(renderVerifyNetworkSummary(result)).toContain("network selection: both");
-    expect(renderVerifyNetworkSummary(result)).toContain("hoodi: FAIL (source=primary)");
-    expect(renderVerifyNetworkSummary(result)).toContain("mainnet: PASS (source=fallback)");
+    expect(renderVerifyNetworkSummary(result)).toContain("hoodi: FAIL");
+    expect(renderVerifyNetworkSummary(result)).toContain("mainnet: PASS");
     expect(renderVerifyNetworkSummary(result)).toContain("SSV minimum liquidation collateral did not match Views");
   });
 });

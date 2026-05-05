@@ -9,6 +9,8 @@ const baseEnv = {
   HOODI_RPC_URL: "https://hoodi.example",
   MAINNET_VIEWS_ADDRESS: "0x0000000000000000000000000000000000000001",
   HOODI_VIEWS_ADDRESS: "0x0000000000000000000000000000000000000002",
+  MAINNET_SUBGRAPH_URL: "https://api.studio.thegraph.com/query/71118/ssv-network-ethereum/version/latest",
+  HOODI_SUBGRAPH_URL: "https://api.studio.thegraph.com/query/71118/ssv-network-hoodi/version/latest",
 };
 
 function stubViewsAdapter(getOperatorDetails: (operatorId: bigint) => Promise<ViewsOperatorDetails>): ViewsAdapter {
@@ -41,13 +43,12 @@ describe("verifyOperators", () => {
 
     const result = await verifyOperators(config, {
       fetchFn,
-      fetchOperatorDetails: async (primaryUrl) => {
-        if (primaryUrl.includes("hoodi")) {
+      fetchOperatorDetails: async (url) => {
+        if (url.includes("hoodi")) {
           return {
             operators: [
               { id: "11", fee: "10", feeSSV: "20", validatorCount: "5", removed: false },
             ],
-            source: "primary",
           };
         }
 
@@ -56,7 +57,6 @@ describe("verifyOperators", () => {
             { id: "21", fee: "30", feeSSV: "30", validatorCount: "8", removed: false },
             { id: "22", fee: "40", feeSSV: "40", validatorCount: "9", removed: false },
           ],
-          source: "primary",
         };
       },
       createViewsAdapter: (rpcUrls) => stubViewsAdapter(async (operatorId) => {
@@ -95,14 +95,13 @@ describe("verifyOperators", () => {
     expect(summary).toContain("mainnet/22: non-passing checks=operator:inconclusive");
   });
 
-  it("supports a single-network operator batch run with a fallback subgraph source", async () => {
+  it("supports a single-network operator batch run", async () => {
     const config = loadRuntimeConfig("hoodi", baseEnv);
     const result = await verifyOperators(config, {
       fetchOperatorDetails: async () => ({
         operators: [
           { id: "11", fee: "25", feeSSV: "25", validatorCount: "3", removed: false },
         ],
-        source: "fallback",
       }),
       createViewsAdapter: () => stubViewsAdapter(async () => ({
         feeETH: 25n,
@@ -122,6 +121,6 @@ describe("verifyOperators", () => {
       inconclusiveChecks: 0,
       failedChecks: 0,
     });
-    expect(renderVerifyOperatorsSummary(result)).toContain("source=fallback");
+    expect(renderVerifyOperatorsSummary(result)).toContain("");
   });
 });

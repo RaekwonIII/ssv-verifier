@@ -9,6 +9,8 @@ const baseEnv = {
   HOODI_RPC_URL: "https://hoodi.example",
   MAINNET_VIEWS_ADDRESS: "0x0000000000000000000000000000000000000001",
   HOODI_VIEWS_ADDRESS: "0x0000000000000000000000000000000000000002",
+  MAINNET_SUBGRAPH_URL: "https://api.studio.thegraph.com/query/71118/ssv-network-ethereum/version/latest",
+  HOODI_SUBGRAPH_URL: "https://api.studio.thegraph.com/query/71118/ssv-network-hoodi/version/latest",
 };
 
 const viewsInterface = new Interface([
@@ -51,7 +53,6 @@ describe("verifyNetwork", () => {
     const config = loadRuntimeConfig("hoodi", baseEnv);
     const result = await verifyNetwork(config, {
       fetchDaoValues: async () => ({
-        source: "primary",
         daoValues: {
           networkFee: "11",
           liquidationThreshold: "12",
@@ -87,7 +88,6 @@ describe("verifyNetwork", () => {
     const config = loadRuntimeConfig("hoodi", baseEnv);
     const result = await verifyNetwork(config, {
       fetchDaoValues: async () => ({
-        source: "primary",
         daoValues: {
           networkFee: "11",
           liquidationThreshold: "12",

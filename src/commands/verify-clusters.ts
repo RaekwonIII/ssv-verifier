@@ -35,7 +35,6 @@ export interface VerifyClustersResult {
   network: VerifyClusterResult["network"];
   status: CheckStatus;
   summary: ClusterBatchSummary;
-  subgraphSource: "primary" | "fallback";
   errorDetail?: string;
   totalClusters: number;
   totalChecks: number;
@@ -129,13 +128,11 @@ function normalizeClusterResult(result: VerifyClusterFunctionResult): VerifyClus
 function createMalformedClusterIdResult(
   network: SingleNetwork,
   clusterId: string,
-  subgraphSource: "primary" | "fallback",
   error: Error,
 ): VerifyClusterBatchResult {
   return {
     network,
     clusterId,
-    subgraphSource,
     freshness: {
       indexedBlockNumber: 0,
       chainHeadBlockNumber: 0,
@@ -192,8 +189,7 @@ async function verifyAllClustersForNetwork(
   const networkConfig = config.networks[network];
   const discoverySpinner = reporter?.spinner(`Fetching cluster ids for ${network}…`);
   const clusterListing = await fetchClusterIds(
-    networkConfig.subgraphPrimaryUrl,
-    networkConfig.subgraphFallbackUrl,
+    networkConfig.subgraphUrl,
     fetchFn,
   ).catch((error: unknown) => error instanceof Error ? error : new Error(String(error)));
 
@@ -203,7 +199,6 @@ async function verifyAllClustersForNetwork(
       network,
       status: "inconclusive",
       summary: summarizeClusterBatch({ clusterResults: [], discoveryFailureCount: 1 }),
-      subgraphSource: "primary",
       errorDetail: clusterListing.message,
       totalClusters: 0,
       totalChecks: 0,
@@ -235,7 +230,6 @@ async function verifyAllClustersForNetwork(
           return createMalformedClusterIdResult(
             network,
             clusterId,
-            clusterListing.source,
             error instanceof Error ? error : new Error(String(error)),
           );
         }
@@ -246,7 +240,6 @@ async function verifyAllClustersForNetwork(
           return {
             network,
             clusterId,
-            subgraphSource: clusterListing.source,
             freshness: {
               indexedBlockNumber: 0,
               chainHeadBlockNumber: 0,
@@ -297,7 +290,6 @@ async function verifyAllClustersForNetwork(
     network,
     status: summarizeStatus(clusterResults.map((result) => result.status)),
     summary: summarizeClusterBatch({ clusterResults }),
-    subgraphSource: clusterListing.source,
     totalClusters: clusterResults.length,
     totalChecks,
     passedChecks,
@@ -395,7 +387,7 @@ export function renderVerifyClustersSummary(result: VerifyClustersRunResult): st
 
   for (const networkResult of result.networkResults) {
     lines.push(
-      `- ${networkResult.network}: ${networkResult.status.toUpperCase()} clusters=${networkResult.totalClusters} clusterListingSource=${networkResult.subgraphSource}`,
+      `- ${networkResult.network}: ${networkResult.status.toUpperCase()} clusters=${networkResult.totalClusters}`,
     );
 
     appendSummaryLines(lines, networkResult.summary, "  ");
@@ -427,7 +419,6 @@ export function toPublicVerifyClustersJson(result: VerifyClustersRunResult): Rec
       network: networkResult.network,
       status: networkResult.status,
       summary: jsonScalar(networkResult.summary),
-      ...(networkResult.subgraphSource ? { clusterListingSource: networkResult.subgraphSource } : {}),
       ...(networkResult.errorDetail ? { errorDetail: networkResult.errorDetail } : {}),
       clusterResults: networkResult.clusterResults.map((clusterResult) => toPublicVerifyClusterJson(clusterResult)),
     })),

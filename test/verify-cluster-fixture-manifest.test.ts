@@ -18,6 +18,8 @@ const baseEnv = {
   HOODI_RPC_URL: "https://hoodi.example",
   MAINNET_VIEWS_ADDRESS: "0x0000000000000000000000000000000000000001",
   HOODI_VIEWS_ADDRESS: "0x0000000000000000000000000000000000000002",
+  MAINNET_SUBGRAPH_URL: "https://api.studio.thegraph.com/query/71118/ssv-network-ethereum/version/latest",
+  HOODI_SUBGRAPH_URL: "https://api.studio.thegraph.com/query/71118/ssv-network-hoodi/version/latest",
 };
 
 interface ManifestEntry {
@@ -78,7 +80,6 @@ interface ExpectedSnapshot {
   scenario: "OK" | "falsePositive";
   clusterId: string;
   verificationBlock: number;
-  subgraphSource: "primary";
   checks: Array<{ name: string; status: string }>;
 }
 
@@ -234,7 +235,6 @@ describe("manifest-driven cluster fixture harness", () => {
       expect(renderedJson).toMatchObject({
         network: "mainnet",
         clusterId: expected.clusterId,
-        subgraphSource: expected.subgraphSource,
         verificationBlock: expected.verificationBlock,
         status: "pass",
       });
